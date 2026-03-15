@@ -21,7 +21,7 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { Upload, Loader2, X, Check, Pencil, Trash2, Receipt } from "lucide-react";
+import { Upload, Loader2, X, Check, Pencil, Trash2, Receipt, Plus, Camera, FileText } from "lucide-react";
 
 function formatIdr(n: number) {
   return new Intl.NumberFormat("id-ID", {
@@ -59,23 +59,20 @@ function useTransactions() {
 function useCategories() {
   const [data, setData] = useState<CategoryOut[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await getAccessToken();
-        if (!token) return;
-        const res = await apiGet<CategoryOut[]>("/api/v1/categories");
-        if (!cancelled) setData(res ?? []);
-      } catch {
-        if (!cancelled) setData([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+  const refresh = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      const res = await apiGet<CategoryOut[]>("/api/v1/categories");
+      setData(res ?? []);
+    } catch {
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
-  return { data, loading };
+  useEffect(() => { refresh(); }, [refresh]);
+  return { data, loading, refresh: refresh };
 }
 
 function useProfile() {
@@ -92,7 +89,7 @@ function useProfile() {
 
 export default function DashboardPage() {
   const { data: txData, loading: txLoading, refresh } = useTransactions();
-  const { data: categories } = useCategories();
+  const { data: categories, refresh: refreshCategories } = useCategories();
   const { profile } = useProfile();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -109,6 +106,19 @@ export default function DashboardPage() {
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatForm, setNewCatForm] = useState({ name: "", icon: "📌", color: "#6B7280" });
+  const [newCatLoading, setNewCatLoading] = useState(false);
+
+  const [fabOpen, setFabOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualForm, setManualForm] = useState({ merchant_name: "", amount: "", transaction_date: "", category_id: "" });
+  const [manualFile, setManualFile] = useState<File | null>(null);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualShowNewCat, setManualShowNewCat] = useState(false);
+  const [manualNewCatForm, setManualNewCatForm] = useState({ name: "", icon: "📌", color: "#6B7280" });
+  const [manualNewCatLoading, setManualNewCatLoading] = useState(false);
 
   const transactions = txData?.items ?? [];
   const totalCount = txData?.total ?? 0;
@@ -231,6 +241,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleCreateCategory() {
+    if (!newCatForm.name.trim()) return;
+    setNewCatLoading(true);
+    try {
+      const created = await apiPost<CategoryOut>("/api/v1/categories", {
+        name: newCatForm.name.trim(),
+        icon: newCatForm.icon || "📌",
+        color: newCatForm.color || "#6B7280",
+      });
+      await refreshCategories();
+      setEditForm((f) => ({ ...f, category_id: created.id }));
+      setNewCatForm({ name: "", icon: "📌", color: "#6B7280" });
+      setShowNewCat(false);
+    } catch {
+      alert("Gagal membuat kategori. Mungkin nama sudah ada.");
+    } finally {
+      setNewCatLoading(false);
+    }
+  }
+
   async function openReceipt(imagePath: string) {
     setPreviewLoading(true);
     try {
@@ -240,6 +270,51 @@ export default function DashboardPage() {
       alert("Gagal memuat gambar struk.");
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  async function handleManualSubmit() {
+    if (!manualForm.merchant_name.trim() || !manualForm.amount || !manualForm.transaction_date) {
+      alert("Merchant, nominal, dan tanggal wajib diisi.");
+      return;
+    }
+    setManualLoading(true);
+    try {
+      const form = new FormData();
+      form.append("merchant_name", manualForm.merchant_name.trim());
+      form.append("amount", manualForm.amount);
+      form.append("transaction_date", manualForm.transaction_date);
+      if (manualForm.category_id) form.append("category_id", manualForm.category_id);
+      if (manualFile) form.append("file", manualFile);
+      await apiPost<TransactionOut>("/api/v1/transactions", form);
+      setManualOpen(false);
+      setManualForm({ merchant_name: "", amount: "", transaction_date: "", category_id: "" });
+      setManualFile(null);
+      refresh();
+    } catch {
+      alert("Gagal menyimpan transaksi.");
+    } finally {
+      setManualLoading(false);
+    }
+  }
+
+  async function handleManualCreateCategory() {
+    if (!manualNewCatForm.name.trim()) return;
+    setManualNewCatLoading(true);
+    try {
+      const created = await apiPost<CategoryOut>("/api/v1/categories", {
+        name: manualNewCatForm.name.trim(),
+        icon: manualNewCatForm.icon || "📌",
+        color: manualNewCatForm.color || "#6B7280",
+      });
+      await refreshCategories();
+      setManualForm((f) => ({ ...f, category_id: created.id }));
+      setManualNewCatForm({ name: "", icon: "📌", color: "#6B7280" });
+      setManualShowNewCat(false);
+    } catch {
+      alert("Gagal membuat kategori. Mungkin nama sudah ada.");
+    } finally {
+      setManualNewCatLoading(false);
     }
   }
 
@@ -402,7 +477,7 @@ export default function DashboardPage() {
         id="ocr-file"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) setOcrFile(f);
+          if (f) { setOcrFile(f); setFabOpen(false); }
           e.target.value = "";
         }}
       />
@@ -433,20 +508,41 @@ export default function DashboardPage() {
             </button>
           </div>
         )}
+        {fabOpen && (
+          <div className="flex flex-col items-end gap-2 mb-2 animate-in fade-in slide-in-from-bottom-2">
+            <button
+              type="button"
+              onClick={() => { document.getElementById("ocr-file")?.click(); }}
+              className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50 transition-colors"
+            >
+              <Camera className="w-5 h-5 text-primary" />
+              <span className="text-sm font-medium text-slate-900">Scan Struk (AI)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setManualOpen(true); setFabOpen(false); setManualForm({ merchant_name: "", amount: "", transaction_date: new Date().toISOString().slice(0, 10), category_id: "" }); }}
+              className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50 transition-colors"
+            >
+              <FileText className="w-5 h-5 text-blue-600" />
+              <span className="text-sm font-medium text-slate-900">Tambah Manual</span>
+            </button>
+          </div>
+        )}
         <button
           type="button"
-          onClick={() => document.getElementById("ocr-file")?.click()}
+          onClick={() => setFabOpen(!fabOpen)}
           disabled={ocrLoading}
-          className="w-14 h-14 bg-primary hover:bg-primary-hover text-slate-900 rounded-full shadow-lg flex items-center justify-center disabled:opacity-70 transition-transform hover:scale-105"
-          aria-label="Upload struk"
+          className={`w-14 h-14 bg-primary hover:bg-primary-hover text-slate-900 rounded-full shadow-lg flex items-center justify-center disabled:opacity-70 transition-all ${fabOpen ? "rotate-45" : ""}`}
+          aria-label="Tambah transaksi"
         >
           {ocrLoading ? (
             <Loader2 className="w-7 h-7 animate-spin" />
           ) : (
-            <Upload className="w-7 h-7" />
+            <Plus className="w-7 h-7" />
           )}
         </button>
       </div>
+      {fabOpen && <div className="fixed inset-0 z-40" onClick={() => setFabOpen(false)} />}
 
       {/* OCR loading overlay */}
       {ocrLoading && (
@@ -537,7 +633,13 @@ export default function DashboardPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Kategori</label>
                 <select
                   value={editForm.category_id}
-                  onChange={(e) => setEditForm((f) => ({ ...f, category_id: e.target.value }))}
+                  onChange={(e) => {
+                    if (e.target.value === "__new__") {
+                      setShowNewCat(true);
+                    } else {
+                      setEditForm((f) => ({ ...f, category_id: e.target.value }));
+                    }
+                  }}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">— Pilih kategori —</option>
@@ -546,7 +648,58 @@ export default function DashboardPage() {
                       {c.icon ? `${c.icon} ` : ""}{c.name}
                     </option>
                   ))}
+                  <option value="__new__">+ Buat Kategori Baru</option>
                 </select>
+                {showNewCat && (
+                  <div className="mt-3 border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-3">
+                    <p className="text-sm font-medium text-slate-700">Kategori Baru</p>
+                    <input
+                      type="text"
+                      placeholder="Nama kategori"
+                      value={newCatForm.name}
+                      onChange={(e) => setNewCatForm((f) => ({ ...f, name: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">Icon (emoji)</label>
+                        <input
+                          type="text"
+                          value={newCatForm.icon}
+                          onChange={(e) => setNewCatForm((f) => ({ ...f, icon: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                          maxLength={4}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">Warna</label>
+                        <input
+                          type="color"
+                          value={newCatForm.color}
+                          onChange={(e) => setNewCatForm((f) => ({ ...f, color: e.target.value }))}
+                          className="w-full h-[38px] border border-slate-200 rounded-lg cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowNewCat(false)}
+                        className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm font-medium hover:bg-white transition-colors"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateCategory}
+                        disabled={newCatLoading || !newCatForm.name.trim()}
+                        className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-2 rounded-lg text-sm font-bold disabled:opacity-50 transition-colors"
+                      >
+                        {newCatLoading ? "Membuat..." : "Buat"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <div className="p-6 border-t border-slate-100 flex gap-3">
@@ -626,6 +779,167 @@ export default function DashboardPage() {
               ) : previewUrl ? (
                 <img src={previewUrl} alt="Struk" className="max-w-full max-h-[70vh] rounded-lg shadow" />
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual transaction modal */}
+      {manualOpen && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900">Tambah Transaksi Manual</h3>
+              <button type="button" onClick={() => setManualOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Merchant / Keterangan *</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: Indomaret, Gojek, dll"
+                  value={manualForm.merchant_name}
+                  onChange={(e) => setManualForm((f) => ({ ...f, merchant_name: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nominal (Rp) *</label>
+                <input
+                  type="number"
+                  placeholder="50000"
+                  value={manualForm.amount}
+                  onChange={(e) => setManualForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tanggal *</label>
+                <input
+                  type="date"
+                  value={manualForm.transaction_date}
+                  onChange={(e) => setManualForm((f) => ({ ...f, transaction_date: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Kategori</label>
+                <select
+                  value={manualForm.category_id}
+                  onChange={(e) => {
+                    if (e.target.value === "__new__") {
+                      setManualShowNewCat(true);
+                    } else {
+                      setManualForm((f) => ({ ...f, category_id: e.target.value }));
+                    }
+                  }}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">— Pilih kategori —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.icon ? `${c.icon} ` : ""}{c.name}
+                    </option>
+                  ))}
+                  <option value="__new__">+ Buat Kategori Baru</option>
+                </select>
+                {manualShowNewCat && (
+                  <div className="mt-3 border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-3">
+                    <p className="text-sm font-medium text-slate-700">Kategori Baru</p>
+                    <input
+                      type="text"
+                      placeholder="Nama kategori"
+                      value={manualNewCatForm.name}
+                      onChange={(e) => setManualNewCatForm((f) => ({ ...f, name: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">Icon (emoji)</label>
+                        <input
+                          type="text"
+                          value={manualNewCatForm.icon}
+                          onChange={(e) => setManualNewCatForm((f) => ({ ...f, icon: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                          maxLength={4}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">Warna</label>
+                        <input
+                          type="color"
+                          value={manualNewCatForm.color}
+                          onChange={(e) => setManualNewCatForm((f) => ({ ...f, color: e.target.value }))}
+                          className="w-full h-[38px] border border-slate-200 rounded-lg cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setManualShowNewCat(false)}
+                        className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm font-medium hover:bg-white transition-colors"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleManualCreateCategory}
+                        disabled={manualNewCatLoading || !manualNewCatForm.name.trim()}
+                        className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-2 rounded-lg text-sm font-bold disabled:opacity-50 transition-colors"
+                      >
+                        {manualNewCatLoading ? "Membuat..." : "Buat"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Foto Struk (opsional)</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex-1 border-2 border-dashed border-slate-200 rounded-lg p-3 text-center cursor-pointer hover:border-primary transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => { setManualFile(e.target.files?.[0] ?? null); e.target.value = ""; }}
+                    />
+                    {manualFile ? (
+                      <span className="text-sm text-slate-700 truncate block">{manualFile.name}</span>
+                    ) : (
+                      <span className="text-sm text-slate-400">Klik untuk pilih foto</span>
+                    )}
+                  </label>
+                  {manualFile && (
+                    <button
+                      type="button"
+                      onClick={() => setManualFile(null)}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-slate-100 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setManualOpen(false)}
+                className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleManualSubmit}
+                disabled={manualLoading}
+                className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70 transition-colors"
+              >
+                {manualLoading ? "Menyimpan..." : "Simpan"}
+              </button>
             </div>
           </div>
         </div>

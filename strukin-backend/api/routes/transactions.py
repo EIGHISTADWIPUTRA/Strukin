@@ -1,10 +1,12 @@
 """
-Transactions router — GET, PUT, DELETE /api/v1/transactions
+Transactions router — CRUD /api/v1/transactions
 """
 
 import logging
+import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from api.deps import get_current_user
 from models.schemas import PaginatedTransactions, TransactionOut, TransactionUpdate
@@ -12,6 +14,12 @@ from services import db_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
+
+UPLOAD_DIR = Path("uploads/receipts")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+_MAX_FILE_SIZE = 10 * 1024 * 1024
 
 
 @router.get("", response_model=PaginatedTransactions)
@@ -38,6 +46,57 @@ async def list_transactions(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to retrieve transactions from the database.",
         )
+
+
+@router.post("", response_model=TransactionOut, status_code=status.HTTP_201_CREATED)
+async def create_transaction(
+    merchant_name: str = Form(..., description="Nama merchant/toko"),
+    amount: float = Form(..., gt=0, description="Nominal transaksi"),
+    transaction_date: str = Form(..., description="Tanggal (YYYY-MM-DD)"),
+    category_id: str | None = Form(None, description="UUID kategori"),
+    file: UploadFile | None = File(None, description="Foto struk (opsional)"),
+    user_id: str = Depends(get_current_user),
+):
+    """Create a transaction manually, with an optional receipt image."""
+    image_path = None
+    if file and file.size and file.size > 0:
+        content_type = file.content_type or ""
+        if content_type not in _ALLOWED_IMAGE_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Tipe file '{content_type}' tidak didukung. Gunakan JPEG, PNG, atau WebP.",
+            )
+        file_bytes = await file.read()
+        if len(file_bytes) > _MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Ukuran file melebihi batas 10 MB.",
+            )
+        ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif"}
+        ext = ext_map.get(content_type, ".jpg")
+        filename = f"{user_id}_{uuid.uuid4().hex[:12]}{ext}"
+        (UPLOAD_DIR / filename).write_bytes(file_bytes)
+        image_path = f"/api/v1/ocr/receipts/{filename}"
+
+    payload: dict = {
+        "merchant_name": merchant_name.strip(),
+        "amount": amount,
+        "transaction_date": transaction_date,
+    }
+    if category_id:
+        payload["category_id"] = category_id
+    if image_path:
+        payload["image_path"] = image_path
+
+    try:
+        saved = await db_service.save_transaction(user_id, payload)
+    except Exception as exc:
+        logger.error("Failed to create manual transaction for user %s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Gagal menyimpan transaksi.",
+        )
+    return TransactionOut.model_validate(saved)
 
 
 @router.put("/{transaction_id}", response_model=TransactionOut)
