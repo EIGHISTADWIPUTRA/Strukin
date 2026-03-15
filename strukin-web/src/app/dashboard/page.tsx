@@ -669,7 +669,9 @@ export default function DashboardPage() {
         <h3 className="font-bold text-sm sm:text-base text-slate-900 p-4 border-b border-slate-100">Aktivitas Terbaru</h3>
         {recent.length === 0 && !txLoading ? (
           <div className="p-8 sm:p-12 text-center">
-            <img src="https://illustrations.popsy.co/amber/receipt.svg" alt="" className="w-24 h-24 sm:w-32 sm:h-32 mx-auto mb-4 opacity-80" />
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <Receipt className="w-8 h-8 sm:w-10 sm:h-10 text-slate-300" />
+            </div>
             <p className="text-slate-600 mb-2 text-sm sm:text-base">Belum ada transaksi</p>
             <p className="text-xs sm:text-sm text-slate-500">Tambah transaksi dengan tombol + di bawah.</p>
           </div>
