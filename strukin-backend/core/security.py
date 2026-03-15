@@ -3,13 +3,16 @@ JWT verification and middleware for Supabase-issued access tokens.
 
 Flow:
   1. Client authenticates with Supabase (email/password, OAuth, etc.)
-  2. Supabase returns a signed JWT (HS256) using the project JWT secret.
+  2. Supabase returns a signed JWT (ES256) using the project's EC private key.
   3. Every request to this API must include: Authorization: Bearer <jwt>
-  4. JWTMiddleware verifies the token locally using SUPABASE_JWT_SECRET
-     (no network call — fast and reliable).
+  4. JWTMiddleware verifies the token using the public key fetched dynamically
+     from Supabase's JWKS endpoint — no static secret needed.
 """
 
+import logging
+
 import jwt
+from jwt import PyJWKClient
 from fastapi import HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -17,25 +20,37 @@ from starlette.responses import JSONResponse
 
 from core.config import settings
 
-_ALGORITHM = "HS256"
-_AUDIENCE = "authenticated"
+logger = logging.getLogger(__name__)
 
-# Routes that skip authentication
+_ALGORITHMS = ["ES256"]
+_AUDIENCE = "authenticated"
+_JWKS_URL = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+
+_jwks_client = PyJWKClient(
+    _JWKS_URL,
+    headers={"apikey": settings.SUPABASE_ANON_KEY},
+    cache_keys=True,
+    lifespan=600,
+)
+
+logger.info("JWKS client configured: %s", _JWKS_URL)
+
 _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 
 def verify_supabase_jwt(token: str) -> dict:
     """
-    Decode and verify a Supabase JWT using the project JWT secret (HS256).
+    Decode and verify a Supabase JWT using the JWKS public key (ES256).
 
     Returns the decoded payload (which contains 'sub' = user UUID).
     Raises HTTPException 401 if the token is invalid or expired.
     """
     try:
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=[_ALGORITHM],
+            signing_key.key,
+            algorithms=_ALGORITHMS,
             audience=_AUDIENCE,
         )
         return payload
@@ -46,6 +61,7 @@ def verify_supabase_jwt(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
     except jwt.InvalidTokenError as exc:
+        logger.warning("JWT verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid authentication token: {exc}",
