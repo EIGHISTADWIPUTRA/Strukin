@@ -120,10 +120,6 @@ async def update_transaction(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No fields to update.",
         )
-    if "transaction_date" in updates:
-        updates["transaction_date"] = updates["transaction_date"].isoformat()
-    if "category_id" in updates:
-        updates["category_id"] = str(updates["category_id"])
     try:
         row = await db_service.update_transaction(user_id, transaction_id, updates)
     except Exception as exc:
