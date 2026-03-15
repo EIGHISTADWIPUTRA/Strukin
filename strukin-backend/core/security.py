@@ -3,14 +3,13 @@ JWT verification and middleware for Supabase-issued access tokens.
 
 Flow:
   1. Client authenticates with Supabase (email/password, OAuth, etc.)
-  2. Supabase returns a signed JWT (ES256) using the project's EC private key.
+  2. Supabase returns a signed JWT (HS256) using the project JWT secret.
   3. Every request to this API must include: Authorization: Bearer <jwt>
-  4. JWTMiddleware verifies the token using the public key fetched dynamically
-     from Supabase's JWKS endpoint — no static secret required.
+  4. JWTMiddleware verifies the token locally using SUPABASE_JWT_SECRET
+     (no network call — fast and reliable).
 """
 
 import jwt
-from jwt import PyJWKClient
 from fastapi import HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -18,24 +17,8 @@ from starlette.responses import JSONResponse
 
 from core.config import settings
 
-# ── Debug: pastikan SUPABASE_ANON_KEY terbaca dari .env ──────────────────────
-_anon_preview = settings.SUPABASE_ANON_KEY[:12] + "..." if settings.SUPABASE_ANON_KEY else "TIDAK TERBACA"
-print("=======================================")
-print(f"CEK KUNCI ANON: {_anon_preview}")
-print(f"CEK SUPABASE URL: {settings.SUPABASE_URL}")
-print("=======================================")
-
-# Supabase now signs JWTs with ES256; JWKS endpoint provides the public key
-_ALGORITHMS = ["ES256", "HS256"]  # ES256 for new projects, HS256 as fallback
+_ALGORITHM = "HS256"
 _AUDIENCE = "authenticated"
-
-# Supabase's JWKS endpoint requires the anon key as an apikey header
-_jwks_client = PyJWKClient(
-    f"{settings.SUPABASE_URL}/auth/v1/jwks",
-    headers={"apikey": settings.SUPABASE_ANON_KEY},
-    cache_keys=True,
-    lifespan=600,  # re-fetch keys every 10 minutes
-)
 
 # Routes that skip authentication
 _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
@@ -43,17 +26,16 @@ _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 def verify_supabase_jwt(token: str) -> dict:
     """
-    Decode and verify a Supabase JWT using the JWKS public key.
+    Decode and verify a Supabase JWT using the project JWT secret (HS256).
 
     Returns the decoded payload (which contains 'sub' = user UUID).
     Raises HTTPException 401 if the token is invalid or expired.
     """
     try:
-        signing_key = _jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
-            signing_key.key,
-            algorithms=_ALGORITHMS,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=[_ALGORITHM],
             audience=_AUDIENCE,
         )
         return payload
@@ -81,7 +63,6 @@ class JWTMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        # Allow public paths without auth
         if request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
 
@@ -95,7 +76,6 @@ class JWTMiddleware(BaseHTTPMiddleware):
         token = auth_header.removeprefix("Bearer ").strip()
         try:
             payload = verify_supabase_jwt(token)
-            # Supabase stores the user UUID in the 'sub' claim
             request.state.user_id = payload["sub"]
             request.state.jwt_payload = payload
         except HTTPException as exc:
