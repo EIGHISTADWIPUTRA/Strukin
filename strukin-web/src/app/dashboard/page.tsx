@@ -37,6 +37,7 @@ function formatIdr(n: number) {
 }
 
 type TimeRange = "daily" | "weekly" | "monthly" | "yearly";
+type KpiRange = "all" | "daily" | "weekly" | "monthly" | "yearly";
 
 function useTransactions() {
   const [data, setData] = useState<PaginatedTransactions | null>(null);
@@ -94,6 +95,30 @@ function localDateStr(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function filterByRange(transactions: TransactionOut[], range: KpiRange): TransactionOut[] {
+  if (range === "all") return transactions.filter((t) => !!t.transaction_date);
+  const now = new Date();
+  const todayStr = localDateStr(now);
+
+  if (range === "daily") {
+    return transactions.filter((t) => t.transaction_date === todayStr);
+  }
+  if (range === "weekly") {
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 6);
+    const weekAgoStr = localDateStr(weekAgo);
+    return transactions.filter((t) => t.transaction_date && t.transaction_date >= weekAgoStr && t.transaction_date <= todayStr);
+  }
+  if (range === "monthly") {
+    const y = String(now.getFullYear());
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    return transactions.filter((t) => t.transaction_date && t.transaction_date.slice(0, 4) === y && t.transaction_date.slice(5, 7) === m);
+  }
+  // yearly
+  const y = String(now.getFullYear());
+  return transactions.filter((t) => t.transaction_date && t.transaction_date.slice(0, 4) === y);
 }
 
 function buildChartData(transactions: TransactionOut[], range: TimeRange) {
@@ -168,6 +193,14 @@ const TIME_LABELS: Record<TimeRange, string> = {
   yearly: "Tahunan",
 };
 
+const KPI_LABELS: Record<KpiRange, string> = {
+  all: "Semua",
+  daily: "Hari Ini",
+  weekly: "Minggu Ini",
+  monthly: "Bulan Ini",
+  yearly: "Tahun Ini",
+};
+
 export default function DashboardPage() {
   const { data: txData, loading: txLoading, refresh } = useTransactions();
   const { data: categories, refresh: refreshCategories } = useCategories();
@@ -202,34 +235,46 @@ export default function DashboardPage() {
   const [manualNewCatLoading, setManualNewCatLoading] = useState(false);
 
   const [timeRange, setTimeRange] = useState<TimeRange>("daily");
+  const [kpiRange, setKpiRange] = useState<KpiRange>("monthly");
 
   const transactions = txData?.items ?? [];
-  const now = new Date();
-  // Parse dari string YYYY-MM-DD langsung untuk menghindari timezone shift
-  const thisMonthStr = String(now.getMonth() + 1).padStart(2, "0");
-  const thisYearStr = String(now.getFullYear());
-  const monthTransactions = transactions.filter((t) => {
-    if (!t.transaction_date) return false;
-    return t.transaction_date.slice(0, 4) === thisYearStr && t.transaction_date.slice(5, 7) === thisMonthStr;
-  });
 
-  const totalIncome = monthTransactions.filter((t) => t.type === "income").reduce((s, t) => s + (t.amount ?? 0), 0);
-  const totalExpense = monthTransactions.filter((t) => t.type !== "income").reduce((s, t) => s + (t.amount ?? 0), 0);
+  const kpiTransactions = useMemo(() => filterByRange(transactions, kpiRange), [transactions, kpiRange]);
+
+  const totalIncome = kpiTransactions.filter((t) => t.type === "income").reduce((s, t) => s + (t.amount ?? 0), 0);
+  const totalExpense = kpiTransactions.filter((t) => t.type !== "income").reduce((s, t) => s + (t.amount ?? 0), 0);
   const netBalance = totalIncome - totalExpense;
   const budget = profile?.monthly_budget ?? 0;
-  const remaining = Math.max(0, budget - totalExpense);
+  const now = new Date();
+  const thisMonthStr = String(now.getMonth() + 1).padStart(2, "0");
+  const thisYearStr = String(now.getFullYear());
+  const monthExpense = useMemo(() =>
+    transactions.filter((t) => t.type !== "income" && t.transaction_date && t.transaction_date.slice(0, 4) === thisYearStr && t.transaction_date.slice(5, 7) === thisMonthStr)
+      .reduce((s, t) => s + (t.amount ?? 0), 0),
+    [transactions, thisYearStr, thisMonthStr],
+  );
+  const remaining = Math.max(0, budget - monthExpense);
   const budgetPercent = budget > 0 ? Math.min(100, (remaining / budget) * 100) : 0;
 
   const chartData = useMemo(() => buildChartData(transactions, timeRange), [transactions, timeRange]);
 
   const categoryMap = new Map(categories.map((c) => [c.id, c]));
-  const byCategory: Record<string, number> = {};
-  monthTransactions.filter((t) => t.type !== "income").forEach((t) => {
+
+  const expenseByCategory: Record<string, number> = {};
+  kpiTransactions.filter((t) => t.type !== "income").forEach((t) => {
     const key = t.category_id ?? "Lainnya";
     const name = key === "Lainnya" ? "Lainnya" : (categoryMap.get(key)?.name ?? "Lainnya");
-    byCategory[name] = (byCategory[name] ?? 0) + (t.amount ?? 0);
+    expenseByCategory[name] = (expenseByCategory[name] ?? 0) + (t.amount ?? 0);
   });
-  const donutData = Object.entries(byCategory).map(([name, value]) => ({ name, value }));
+  const expenseDonut = Object.entries(expenseByCategory).map(([name, value]) => ({ name, value }));
+
+  const incomeByCategory: Record<string, number> = {};
+  kpiTransactions.filter((t) => t.type === "income").forEach((t) => {
+    const key = t.category_id ?? "Lainnya";
+    const name = key === "Lainnya" ? "Lainnya" : (categoryMap.get(key)?.name ?? "Lainnya");
+    incomeByCategory[name] = (incomeByCategory[name] ?? 0) + (t.amount ?? 0);
+  });
+  const incomeDonut = Object.entries(incomeByCategory).map(([name, value]) => ({ name, value }));
 
   const handleOcrSubmit = async () => {
     if (!ocrFile) return;
@@ -444,6 +489,19 @@ export default function DashboardPage() {
 
   return (
     <>
+      {/* KPI Time Range Selector */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold text-slate-900">Ringkasan</h2>
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+          {(["all", "daily", "weekly", "monthly", "yearly"] as KpiRange[]).map((r) => (
+            <button key={r} type="button" onClick={() => setKpiRange(r)}
+              className={`px-2.5 py-1 text-xs font-medium transition-colors ${kpiRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+              {KPI_LABELS[r]}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
@@ -452,6 +510,7 @@ export default function DashboardPage() {
             <p className="text-xs font-medium text-slate-500">Pemasukan</p>
           </div>
           <p className="text-xl font-bold text-emerald-600">{txLoading ? "—" : formatIdr(totalIncome)}</p>
+          <p className="text-[10px] text-slate-400 mt-1">{KPI_LABELS[kpiRange]}</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
@@ -459,6 +518,7 @@ export default function DashboardPage() {
             <p className="text-xs font-medium text-slate-500">Pengeluaran</p>
           </div>
           <p className="text-xl font-bold text-red-500">{txLoading ? "—" : formatIdr(totalExpense)}</p>
+          <p className="text-[10px] text-slate-400 mt-1">{KPI_LABELS[kpiRange]}</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
@@ -470,6 +530,7 @@ export default function DashboardPage() {
           <p className={`text-xl font-bold ${netBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
             {txLoading ? "—" : `${netBalance >= 0 ? "+" : ""}${formatIdr(netBalance)}`}
           </p>
+          <p className="text-[10px] text-slate-400 mt-1">{netBalance >= 0 ? "Surplus" : "Defisit"}</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <p className="text-xs font-medium text-slate-500 mb-2">Sisa Budget</p>
@@ -481,24 +542,28 @@ export default function DashboardPage() {
                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${budgetPercent}%` }} />
               </div>
               <p className="text-sm font-semibold text-slate-700">{formatIdr(remaining)}</p>
+              <p className="text-[10px] text-slate-400 mt-1">Budget bulanan</p>
             </>
           )}
         </div>
       </div>
 
-      {/* Charts */}
+      {/* Donut Charts — Pengeluaran & Pemasukan per Kategori */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-4">Pengeluaran per Kategori</h3>
-          {donutData.length === 0 ? (
-            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data bulan ini</p>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-slate-900">Pengeluaran per Kategori</h3>
+            <span className="text-xs text-slate-400">{KPI_LABELS[kpiRange]}</span>
+          </div>
+          {expenseDonut.length === 0 ? (
+            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data pengeluaran</p>
           ) : (
             <ResponsiveContainer width="100%" height={240}>
               <PieChart>
-                <Pie data={donutData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value" nameKey="name"
+                <Pie data={expenseDonut} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value" nameKey="name"
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                  {donutData.map((_, i) => (
-                    <Cell key={i} fill={["#A3E635", "#bef264", "#86efac", "#4ade80", "#22c55e", "#f59e0b", "#3b82f6", "#8b5cf6"][i % 8]} />
+                  {expenseDonut.map((_, i) => (
+                    <Cell key={i} fill={["#ef4444", "#f87171", "#fca5a5", "#f59e0b", "#fb923c", "#3b82f6", "#8b5cf6", "#6b7280"][i % 8]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(v: number) => formatIdr(v)} />
@@ -508,27 +573,50 @@ export default function DashboardPage() {
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-900">Tren Keuangan</h3>
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-              {(["daily", "weekly", "monthly", "yearly"] as TimeRange[]).map((r) => (
-                <button key={r} type="button" onClick={() => setTimeRange(r)}
-                  className={`px-2.5 py-1 text-xs font-medium transition-colors ${timeRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                  {TIME_LABELS[r]}
-                </button>
-              ))}
-            </div>
+            <h3 className="font-bold text-slate-900">Pemasukan per Kategori</h3>
+            <span className="text-xs text-slate-400">{KPI_LABELS[kpiRange]}</span>
           </div>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={chartData}>
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : `${v}`} />
-              <Tooltip formatter={(v: number) => formatIdr(v)} />
-              <Legend />
-              <Bar dataKey="income" name="Pemasukan" fill="#22c55e" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="expense" name="Pengeluaran" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {incomeDonut.length === 0 ? (
+            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data pemasukan</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={incomeDonut} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value" nameKey="name"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                  {incomeDonut.map((_, i) => (
+                    <Cell key={i} fill={["#22c55e", "#4ade80", "#86efac", "#A3E635", "#bef264", "#14b8a6", "#0ea5e9", "#6366f1"][i % 8]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v: number) => formatIdr(v)} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
+      </div>
+
+      {/* Tren Keuangan Bar Chart */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-slate-900">Tren Keuangan</h3>
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            {(["daily", "weekly", "monthly", "yearly"] as TimeRange[]).map((r) => (
+              <button key={r} type="button" onClick={() => setTimeRange(r)}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors ${timeRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                {TIME_LABELS[r]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={chartData}>
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : `${v}`} />
+            <Tooltip formatter={(v: number) => formatIdr(v)} />
+            <Legend />
+            <Bar dataKey="income" name="Pemasukan" fill="#22c55e" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="expense" name="Pengeluaran" fill="#ef4444" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
 
       {/* Recent Activity */}
@@ -591,7 +679,7 @@ export default function DashboardPage() {
             <button type="button" onClick={() => document.getElementById("ocr-file")?.click()} className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50">
               <Camera className="w-5 h-5 text-primary" /><span className="text-sm font-medium text-slate-900">Scan Struk (AI)</span>
             </button>
-            <button type="button" onClick={() => { setManualOpen(true); setFabOpen(false); setManualForm({ type: "expense", merchant_name: "", amount: "", transaction_date: new Date().toISOString().slice(0, 10), category_id: "" }); }}
+            <button type="button" onClick={() => { setManualOpen(true); setFabOpen(false); setManualForm({ type: "expense", merchant_name: "", amount: "", transaction_date: localDateStr(new Date()), category_id: "" }); }}
               className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50">
               <FileText className="w-5 h-5 text-blue-600" /><span className="text-sm font-medium text-slate-900">Tambah Manual</span>
             </button>
