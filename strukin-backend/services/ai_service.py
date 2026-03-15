@@ -27,7 +27,7 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 # DashScope chat completions endpoint
-_DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+_DASHSCOPE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
 _MAX_IMAGE_PX = 1024
 _JPEG_QUALITY = 80
 _AI_TIMEOUT_SECONDS = 30.0
