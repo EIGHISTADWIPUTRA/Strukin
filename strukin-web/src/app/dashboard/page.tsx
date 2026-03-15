@@ -191,6 +191,62 @@ const KPI_LABELS: Record<KpiRange, string> = {
   yearly: "Tahun Ini",
 };
 
+function TypeToggle({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+      <button type="button" onClick={() => onChange("expense")} className={`flex-1 py-2 px-3 text-sm font-medium transition-colors ${value === "expense" ? "bg-red-500 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+        <TrendingDown className="w-4 h-4 inline mr-1" />Pengeluaran
+      </button>
+      <button type="button" onClick={() => onChange("income")} className={`flex-1 py-2 px-3 text-sm font-medium transition-colors ${value === "income" ? "bg-emerald-500 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+        <TrendingUp className="w-4 h-4 inline mr-1" />Pemasukan
+      </button>
+    </div>
+  );
+}
+
+function CategorySelect({ value, onValueChange, categories, showNew, setShowNew, newForm, setNewForm, newLoading, onCreateNew }: {
+  value: string; onValueChange: (v: string) => void;
+  categories: CategoryOut[];
+  showNew: boolean; setShowNew: (v: boolean) => void;
+  newForm: { name: string; icon: string; color: string }; setNewForm: (fn: (f: { name: string; icon: string; color: string }) => { name: string; icon: string; color: string }) => void;
+  newLoading: boolean; onCreateNew: () => void;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-700 mb-1">Kategori</label>
+      <select value={value} onChange={(e) => e.target.value === "__new__" ? setShowNew(true) : onValueChange(e.target.value)}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary">
+        <option value="">— Pilih kategori —</option>
+        {categories.map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
+        <option value="__new__">+ Buat Kategori Baru</option>
+      </select>
+      {showNew && (
+        <div className="mt-3 border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-3">
+          <p className="text-sm font-medium text-slate-700">Kategori Baru</p>
+          <input type="text" placeholder="Nama kategori" value={newForm.name} onChange={(e) => setNewForm((f) => ({ ...f, name: e.target.value }))}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs text-slate-500 mb-1">Icon</label>
+              <input type="text" value={newForm.icon} onChange={(e) => setNewForm((f) => ({ ...f, icon: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" maxLength={4} />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs text-slate-500 mb-1">Warna</label>
+              <input type="color" value={newForm.color} onChange={(e) => setNewForm((f) => ({ ...f, color: e.target.value }))}
+                className="w-full h-[42px] border border-slate-200 rounded-lg cursor-pointer" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm font-medium hover:bg-white">Batal</button>
+            <button type="button" onClick={onCreateNew} disabled={newLoading || !newForm.name.trim()} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-2 rounded-lg text-sm font-bold disabled:opacity-50">{newLoading ? "Membuat..." : "Buat"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: txData, loading: txLoading, refresh } = useTransactions();
   const { data: categories, refresh: refreshCategories } = useCategories();
@@ -414,56 +470,53 @@ export default function DashboardPage() {
 
   const recent = transactions.slice(0, 8);
 
-  const TypeToggle = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-      <button type="button" onClick={() => onChange("expense")} className={`flex-1 py-2 px-3 text-sm font-medium transition-colors ${value === "expense" ? "bg-red-500 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
-        <TrendingDown className="w-4 h-4 inline mr-1" />Pengeluaran
-      </button>
-      <button type="button" onClick={() => onChange("income")} className={`flex-1 py-2 px-3 text-sm font-medium transition-colors ${value === "income" ? "bg-emerald-500 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
-        <TrendingUp className="w-4 h-4 inline mr-1" />Pemasukan
-      </button>
-    </div>
-  );
+  // Category CRUD
+  const [catManageOpen, setCatManageOpen] = useState(false);
+  const [editCat, setEditCat] = useState<CategoryOut | null>(null);
+  const [editCatForm, setEditCatForm] = useState({ name: "", icon: "📌", color: "#6B7280" });
+  const [editCatLoading, setEditCatLoading] = useState(false);
+  const [deleteCat, setDeleteCat] = useState<CategoryOut | null>(null);
+  const [deleteCatLoading, setDeleteCatLoading] = useState(false);
 
-  const CategorySelect = ({ value, onValueChange, showNew, setShowNew, newForm, setNewForm, newLoading, onCreateNew }: {
-    value: string; onValueChange: (v: string) => void;
-    showNew: boolean; setShowNew: (v: boolean) => void;
-    newForm: { name: string; icon: string; color: string }; setNewForm: (fn: (f: { name: string; icon: string; color: string }) => { name: string; icon: string; color: string }) => void;
-    newLoading: boolean; onCreateNew: () => void;
-  }) => (
-    <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">Kategori</label>
-      <select value={value} onChange={(e) => e.target.value === "__new__" ? setShowNew(true) : onValueChange(e.target.value)}
-        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary">
-        <option value="">— Pilih kategori —</option>
-        {categories.map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
-        <option value="__new__">+ Buat Kategori Baru</option>
-      </select>
-      {showNew && (
-        <div className="mt-3 border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-3">
-          <p className="text-sm font-medium text-slate-700">Kategori Baru</p>
-          <input type="text" placeholder="Nama kategori" value={newForm.name} onChange={(e) => setNewForm((f) => ({ ...f, name: e.target.value }))}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-xs text-slate-500 mb-1">Icon</label>
-              <input type="text" value={newForm.icon} onChange={(e) => setNewForm((f) => ({ ...f, icon: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" maxLength={4} />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-slate-500 mb-1">Warna</label>
-              <input type="color" value={newForm.color} onChange={(e) => setNewForm((f) => ({ ...f, color: e.target.value }))}
-                className="w-full h-[38px] border border-slate-200 rounded-lg cursor-pointer" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm font-medium hover:bg-white">Batal</button>
-            <button type="button" onClick={onCreateNew} disabled={newLoading || !newForm.name.trim()} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-2 rounded-lg text-sm font-bold disabled:opacity-50">{newLoading ? "Membuat..." : "Buat"}</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  function openEditCat(c: CategoryOut) {
+    setEditCat(c);
+    setEditCatForm({ name: c.name, icon: c.icon ?? "📌", color: c.color ?? "#6B7280" });
+  }
+
+  async function handleEditCatSave() {
+    if (!editCat || !editCatForm.name.trim()) return;
+    setEditCatLoading(true);
+    try {
+      await apiPut(`/api/v1/categories/${editCat.id}`, {
+        name: editCatForm.name.trim(),
+        icon: editCatForm.icon || "📌",
+        color: editCatForm.color || "#6B7280",
+      });
+      setEditCat(null);
+      refreshCategories();
+    } catch {
+      alert("Gagal menyimpan perubahan kategori.");
+    } finally {
+      setEditCatLoading(false);
+    }
+  }
+
+  async function handleDeleteCat() {
+    if (!deleteCat) return;
+    setDeleteCatLoading(true);
+    try {
+      await apiDelete(`/api/v1/categories/${deleteCat.id}`);
+      setDeleteCat(null);
+      refreshCategories();
+    } catch {
+      alert("Gagal menghapus kategori.");
+    } finally {
+      setDeleteCatLoading(false);
+    }
+  }
+
+  const userCategories = categories.filter((c) => c.user_id !== null);
+  const globalCategories = categories.filter((c) => c.user_id === null);
 
   return (
     <>
@@ -574,6 +627,14 @@ export default function DashboardPage() {
             </>
           )}
         </div>
+      </div>
+
+      {/* Manage Categories Button */}
+      <div className="flex justify-end mb-4">
+        <button type="button" onClick={() => setCatManageOpen(true)}
+          className="flex items-center gap-1.5 text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm hover:shadow transition-all">
+          <Pencil className="w-3.5 h-3.5" />Kelola Kategori
+        </button>
       </div>
 
       {/* Tren Keuangan Bar Chart */}
@@ -739,7 +800,7 @@ export default function DashboardPage() {
                 <input type="date" value={editForm.transaction_date} onChange={(e) => setEditForm((f) => ({ ...f, transaction_date: e.target.value }))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
-              <CategorySelect value={editForm.category_id} onValueChange={(v) => setEditForm((f) => ({ ...f, category_id: v }))}
+              <CategorySelect value={editForm.category_id} onValueChange={(v) => setEditForm((f) => ({ ...f, category_id: v }))} categories={categories}
                 showNew={showNewCat} setShowNew={setShowNewCat} newForm={newCatForm} setNewForm={setNewCatForm} newLoading={newCatLoading} onCreateNew={handleCreateCategory} />
             </div>
             <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white">
@@ -809,7 +870,7 @@ export default function DashboardPage() {
                 <input type="date" value={manualForm.transaction_date} onChange={(e) => setManualForm((f) => ({ ...f, transaction_date: e.target.value }))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
-              <CategorySelect value={manualForm.category_id} onValueChange={(v) => setManualForm((f) => ({ ...f, category_id: v }))}
+              <CategorySelect value={manualForm.category_id} onValueChange={(v) => setManualForm((f) => ({ ...f, category_id: v }))} categories={categories}
                 showNew={manualShowNewCat} setShowNew={setManualShowNewCat} newForm={manualNewCatForm} setNewForm={setManualNewCatForm} newLoading={manualNewCatLoading} onCreateNew={handleManualCreateCategory} />
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Foto (opsional)</label>
@@ -825,6 +886,107 @@ export default function DashboardPage() {
             <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white">
               <button type="button" onClick={() => setManualOpen(false)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 text-sm sm:text-base">Batal</button>
               <button type="button" onClick={handleManualSubmit} disabled={manualLoading} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70 text-sm sm:text-base">{manualLoading ? "Menyimpan..." : "Simpan"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Categories Modal */}
+      {catManageOpen && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[85vh] sm:max-h-[90vh] flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Kelola Kategori</h3>
+              <button type="button" onClick={() => setCatManageOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {userCategories.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Kategori Kustom</p>
+                  <ul className="space-y-2">
+                    {userCategories.map((c) => (
+                      <li key={c.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                        <span className="text-lg shrink-0" style={{ color: c.color ?? undefined }}>{c.icon ?? "📌"}</span>
+                        <span className="flex-1 text-sm font-medium text-slate-900 truncate">{c.name}</span>
+                        <button type="button" onClick={() => openEditCat(c)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors" aria-label="Edit">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" onClick={() => setDeleteCat(c)} className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors" aria-label="Hapus">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {globalCategories.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Kategori Bawaan</p>
+                  <ul className="space-y-2">
+                    {globalCategories.map((c) => (
+                      <li key={c.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl opacity-70">
+                        <span className="text-lg shrink-0">{c.icon ?? "📌"}</span>
+                        <span className="flex-1 text-sm font-medium text-slate-700 truncate">{c.name}</span>
+                        <span className="text-[10px] text-slate-400">Bawaan</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {categories.length === 0 && <p className="text-sm text-slate-500 text-center py-4">Belum ada kategori.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Category Modal */}
+      {editCat && (
+        <div className="fixed inset-0 z-60 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-sm">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Edit Kategori</h3>
+              <button type="button" onClick={() => setEditCat(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4 sm:p-6 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nama</label>
+                <input type="text" value={editCatForm.name} onChange={(e) => setEditCatForm((f) => ({ ...f, name: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-500 mb-1">Icon</label>
+                  <input type="text" value={editCatForm.icon} onChange={(e) => setEditCatForm((f) => ({ ...f, icon: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" maxLength={4} />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-500 mb-1">Warna</label>
+                  <input type="color" value={editCatForm.color} onChange={(e) => setEditCatForm((f) => ({ ...f, color: e.target.value }))}
+                    className="w-full h-[42px] border border-slate-200 rounded-lg cursor-pointer" />
+                </div>
+              </div>
+            </div>
+            <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setEditCat(null)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 text-sm">Batal</button>
+              <button type="button" onClick={handleEditCatSave} disabled={editCatLoading || !editCatForm.name.trim()} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70 text-sm">{editCatLoading ? "Menyimpan..." : "Simpan"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Category Modal */}
+      {deleteCat && (
+        <div className="fixed inset-0 z-60 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-sm">
+            <div className="p-4 sm:p-6">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900 mb-2">Hapus Kategori?</h3>
+              <p className="text-xs sm:text-sm text-slate-600">
+                Kategori <strong>{deleteCat.icon} {deleteCat.name}</strong> akan dihapus. Transaksi yang menggunakan kategori ini tidak akan terhapus.
+              </p>
+            </div>
+            <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setDeleteCat(null)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 text-sm">Batal</button>
+              <button type="button" onClick={handleDeleteCat} disabled={deleteCatLoading} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold disabled:opacity-70 text-sm">{deleteCatLoading ? "Menghapus..." : "Hapus"}</button>
             </div>
           </div>
         </div>

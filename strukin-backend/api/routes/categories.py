@@ -1,5 +1,5 @@
 """
-Categories router — GET & POST /api/v1/categories
+Categories router — CRUD /api/v1/categories
 """
 
 import logging
@@ -46,4 +46,51 @@ async def create_category(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to create category.",
+        )
+
+
+@router.put("/{category_id}", response_model=CategoryOut)
+async def update_category(
+    category_id: str,
+    body: CategoryCreate,
+    user_id: str = Depends(get_current_user),
+):
+    """Update a custom category owned by the authenticated user."""
+    updates = body.model_dump(mode="json", exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update.")
+    try:
+        row = await db_service.update_category(user_id, category_id, updates)
+    except Exception as exc:
+        logger.error("Failed to update category %s: %s", category_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to update category.",
+        )
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found or is a global category (cannot be edited).",
+        )
+    return row
+
+
+@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_category(
+    category_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Delete a custom category owned by the authenticated user."""
+    try:
+        deleted = await db_service.delete_category(user_id, category_id)
+    except Exception as exc:
+        logger.error("Failed to delete category %s: %s", category_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to delete category.",
+        )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found or is a global category (cannot be deleted).",
         )

@@ -54,6 +54,32 @@ async def create_category(user_id: str, data: dict) -> dict:
     return response.data[0]
 
 
+async def update_category(user_id: str, category_id: str, data: dict) -> dict | None:
+    """Update a custom category owned by the user. Returns updated row or None."""
+    client = await _get_client()
+    response = (
+        await client.table("categories")
+        .update(data)
+        .eq("id", category_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
+async def delete_category(user_id: str, category_id: str) -> bool:
+    """Delete a custom category owned by the user. Returns True if deleted."""
+    client = await _get_client()
+    response = (
+        await client.table("categories")
+        .delete()
+        .eq("id", category_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(response.data)
+
+
 # ─── Transactions ──────────────────────────────────────────────────────────
 
 async def get_transactions(
