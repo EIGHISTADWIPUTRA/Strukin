@@ -54,4 +54,27 @@ export async function apiPost<T>(
   return res.json() as Promise<T>;
 }
 
+export async function apiPut<T>(
+  path: string,
+  body: unknown
+): Promise<T> {
+  const res = await authFetch(path, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  const res = await authFetch(path, { method: "DELETE" });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+}
+
 export { API_BASE };

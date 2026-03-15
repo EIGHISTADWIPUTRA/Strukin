@@ -97,6 +97,32 @@ async def save_transaction(user_id: str, data: dict) -> dict:
     return response.data[0]
 
 
+async def update_transaction(user_id: str, transaction_id: str, data: dict) -> dict | None:
+    """Update a transaction owned by user_id. Returns updated row or None."""
+    client = await _get_client()
+    response = (
+        await client.table("transactions")
+        .update(data)
+        .eq("id", transaction_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
+async def delete_transaction(user_id: str, transaction_id: str) -> bool:
+    """Delete a transaction owned by user_id. Returns True if deleted."""
+    client = await _get_client()
+    response = (
+        await client.table("transactions")
+        .delete()
+        .eq("id", transaction_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(response.data)
+
+
 # ─── Categories — helper for OCR matching ──────────────────────────────────
 
 async def find_category_by_name(user_id: str, name: str) -> dict | None:

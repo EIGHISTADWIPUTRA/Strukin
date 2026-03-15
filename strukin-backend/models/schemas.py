@@ -48,6 +48,14 @@ class TransactionOut(BaseModel):
     created_at: datetime | None = None
 
 
+class TransactionUpdate(BaseModel):
+    """Input for updating a transaction (all fields optional)."""
+    merchant_name: str | None = None
+    amount: float | None = None
+    transaction_date: date | None = None
+    category_id: UUID | None = None
+
+
 class PaginatedTransactions(BaseModel):
     """Paginated list of transactions."""
     page: int

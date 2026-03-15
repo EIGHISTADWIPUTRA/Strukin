@@ -1,5 +1,5 @@
 """
-Transactions router — GET /api/v1/transactions
+Transactions router — GET, PUT, DELETE /api/v1/transactions
 """
 
 import logging
@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.deps import get_current_user
-from models.schemas import PaginatedTransactions, TransactionOut
+from models.schemas import PaginatedTransactions, TransactionOut, TransactionUpdate
 from services import db_service
 
 logger = logging.getLogger(__name__)
@@ -37,4 +37,56 @@ async def list_transactions(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to retrieve transactions from the database.",
+        )
+
+
+@router.put("/{transaction_id}", response_model=TransactionOut)
+async def update_transaction(
+    transaction_id: str,
+    body: TransactionUpdate,
+    user_id: str = Depends(get_current_user),
+):
+    """Update a transaction owned by the authenticated user."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update.",
+        )
+    if "transaction_date" in updates:
+        updates["transaction_date"] = updates["transaction_date"].isoformat()
+    try:
+        row = await db_service.update_transaction(user_id, transaction_id, updates)
+    except Exception as exc:
+        logger.error("Failed to update transaction %s: %s", transaction_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to update transaction.",
+        )
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found or not owned by you.",
+        )
+    return TransactionOut.model_validate(row)
+
+
+@router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_transaction(
+    transaction_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Delete a transaction owned by the authenticated user."""
+    try:
+        deleted = await db_service.delete_transaction(user_id, transaction_id)
+    except Exception as exc:
+        logger.error("Failed to delete transaction %s: %s", transaction_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to delete transaction.",
+        )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found or not owned by you.",
         )

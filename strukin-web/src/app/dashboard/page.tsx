@@ -8,7 +8,7 @@ import {
   Profile,
   OCRResponse,
 } from "@/types/api";
-import { apiGet, apiPost, getAccessToken } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from "@/lib/api";
 import { getProfile } from "@/lib/profile";
 import {
   PieChart,
@@ -21,7 +21,7 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { Upload, Loader2, X, Check } from "lucide-react";
+import { Upload, Loader2, X, Check, Pencil, Trash2 } from "lucide-react";
 
 function formatIdr(n: number) {
   return new Intl.NumberFormat("id-ID", {
@@ -100,6 +100,13 @@ export default function DashboardPage() {
   const [ocrResult, setOcrResult] = useState<OCRResponse | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
+  const [editTx, setEditTx] = useState<TransactionOut | null>(null);
+  const [editForm, setEditForm] = useState({ merchant_name: "", amount: "", transaction_date: "", category_id: "" });
+  const [editLoading, setEditLoading] = useState(false);
+
+  const [deleteTx, setDeleteTx] = useState<TransactionOut | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const transactions = txData?.items ?? [];
   const totalCount = txData?.total ?? 0;
   const now = new Date();
@@ -155,6 +162,49 @@ export default function DashboardPage() {
       setOcrLoading(false);
     }
   };
+
+  function openEdit(t: TransactionOut) {
+    setEditTx(t);
+    setEditForm({
+      merchant_name: t.merchant_name ?? "",
+      amount: t.amount != null ? String(t.amount) : "",
+      transaction_date: t.transaction_date ?? "",
+      category_id: t.category_id ?? "",
+    });
+  }
+
+  async function handleEditSave() {
+    if (!editTx) return;
+    setEditLoading(true);
+    try {
+      const body: Record<string, unknown> = {};
+      if (editForm.merchant_name) body.merchant_name = editForm.merchant_name;
+      if (editForm.amount) body.amount = parseFloat(editForm.amount);
+      if (editForm.transaction_date) body.transaction_date = editForm.transaction_date;
+      if (editForm.category_id) body.category_id = editForm.category_id;
+      await apiPut(`/api/v1/transactions/${editTx.id}`, body);
+      setEditTx(null);
+      refresh();
+    } catch {
+      alert("Gagal menyimpan perubahan.");
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTx) return;
+    setDeleteLoading(true);
+    try {
+      await apiDelete(`/api/v1/transactions/${deleteTx.id}`);
+      setDeleteTx(null);
+      refresh();
+    } catch {
+      alert("Gagal menghapus transaksi.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
 
   const recent = transactions.slice(0, 5);
 
@@ -263,7 +313,7 @@ export default function DashboardPage() {
           <ul className="divide-y divide-slate-100">
             {recent.map((t) => (
               <li key={t.id} className="flex items-center gap-4 p-4 hover:bg-slate-50">
-                <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-lg">
+                <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-lg shrink-0">
                   {t.category_id ? (categoryMap.get(t.category_id)?.icon ?? "📌") : "📌"}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -272,7 +322,25 @@ export default function DashboardPage() {
                     {t.transaction_date ?? "—"} · {t.category_id ? categoryMap.get(t.category_id)?.name ?? "—" : "Lainnya"}
                   </p>
                 </div>
-                <p className="font-semibold text-slate-900">{t.amount != null ? formatIdr(t.amount) : "—"}</p>
+                <p className="font-semibold text-slate-900 shrink-0">{t.amount != null ? formatIdr(t.amount) : "—"}</p>
+                <div className="flex gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(t)}
+                    className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                    aria-label="Edit"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTx(t)}
+                    className="p-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                    aria-label="Hapus"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -343,7 +411,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Confirmation modal */}
+      {/* OCR Confirmation modal */}
       {modalOpen && ocrResult && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -365,9 +433,6 @@ export default function DashboardPage() {
                 Tanggal <strong>{ocrResult.extracted.date ?? "—"}</strong>.
                 {ocrResult.category_matched && ` Kategori: ${ocrResult.category_matched.name}.`}
               </p>
-              <p className="text-sm text-slate-500">
-                Transaksi sudah tersimpan. Ubah data bisa lewat fitur edit (jika tersedia).
-              </p>
             </div>
             <div className="p-6 border-t border-slate-100">
               <button
@@ -377,6 +442,113 @@ export default function DashboardPage() {
               >
                 <Check className="w-5 h-5" />
                 Selesai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editTx && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900">Edit Transaksi</h3>
+              <button type="button" onClick={() => setEditTx(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Merchant</label>
+                <input
+                  type="text"
+                  value={editForm.merchant_name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, merchant_name: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nominal (Rp)</label>
+                <input
+                  type="number"
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tanggal</label>
+                <input
+                  type="date"
+                  value={editForm.transaction_date}
+                  onChange={(e) => setEditForm((f) => ({ ...f, transaction_date: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Kategori</label>
+                <select
+                  value={editForm.category_id}
+                  onChange={(e) => setEditForm((f) => ({ ...f, category_id: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">— Pilih kategori —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.icon ? `${c.icon} ` : ""}{c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="p-6 border-t border-slate-100 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setEditTx(null)}
+                className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleEditSave}
+                disabled={editLoading}
+                className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70 transition-colors"
+              >
+                {editLoading ? "Menyimpan..." : "Simpan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTx && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full">
+            <div className="p-6">
+              <h3 className="font-bold text-slate-900 mb-2">Hapus Transaksi?</h3>
+              <p className="text-sm text-slate-600">
+                Transaksi <strong>{deleteTx.merchant_name ?? "—"}</strong> sebesar{" "}
+                <strong>{deleteTx.amount != null ? formatIdr(deleteTx.amount) : "—"}</strong> akan dihapus permanen.
+              </p>
+            </div>
+            <div className="p-6 border-t border-slate-100 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTx(null)}
+                className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteLoading}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold disabled:opacity-70 transition-colors"
+              >
+                {deleteLoading ? "Menghapus..." : "Hapus"}
               </button>
             </div>
           </div>
