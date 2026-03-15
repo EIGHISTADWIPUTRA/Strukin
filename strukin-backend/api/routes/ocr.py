@@ -139,7 +139,11 @@ async def process_receipt(
 
     # ── 7. Save transaction (even if incomplete) ────────────────────────────
     try:
-        transaction_payload: dict = {"raw_ai_output": ai_data, "image_path": image_url}
+        tx_type = ai_data.get("transaction_type", "expense")
+        if tx_type not in ("income", "expense"):
+            tx_type = "expense"
+
+        transaction_payload: dict = {"raw_ai_output": ai_data, "image_path": image_url, "type": tx_type}
         if merchant:
             transaction_payload["merchant_name"] = merchant
         if amount is not None and amount > 0:

@@ -33,24 +33,26 @@ _JPEG_QUALITY = 80
 _AI_TIMEOUT_SECONDS = 30.0
 
 # System prompt — instructs Qwen-VL to return structured JSON only
-_SYSTEM_PROMPT = """You are a receipt OCR specialist. Analyze the provided receipt image and extract information.
+_SYSTEM_PROMPT = """You are a receipt/document OCR specialist. Analyze the provided image and extract financial information.
 
 Return ONLY a valid JSON object with this exact structure (no markdown, no explanation):
 {
-  "merchant": "store name or null",
+  "merchant": "store name or source or null",
   "total_amount": 12345.67 or null,
   "date": "YYYY-MM-DD or original string or null",
   "items": [
     {"name": "item name", "quantity": 1, "price": 9.99}
   ],
-  "suggested_category": "one of the provided categories or a sensible default"
+  "suggested_category": "one of the provided categories or a sensible default",
+  "transaction_type": "income" or "expense"
 }
 
 Rules:
 - total_amount must be a number (float), not a string
 - If a field cannot be determined, use null
 - items may be an empty array []
-- suggested_category must match one of the provided category names when possible"""
+- suggested_category must match one of the provided category names when possible
+- transaction_type: "expense" for purchases/payments/bills, "income" for salary/transfer-in/refund/cashback/deposit"""
 
 
 def _resize_image(raw_bytes: bytes) -> bytes:

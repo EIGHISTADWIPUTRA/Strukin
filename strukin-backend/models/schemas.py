@@ -5,10 +5,16 @@ ORM-style construction from dicts returned by Supabase.
 """
 
 from datetime import date, datetime
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class TransactionType(str, Enum):
+    income = "income"
+    expense = "expense"
 
 
 # ─── Category ─────────────────────────────────────────────────────────────
@@ -25,7 +31,7 @@ class CategoryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    user_id: UUID | None = None     # None = global/shared category
+    user_id: UUID | None = None
     name: str
     icon: str | None = None
     color: str | None = None
@@ -39,6 +45,7 @@ class TransactionOut(BaseModel):
 
     id: UUID
     user_id: UUID
+    type: str = "expense"
     category_id: UUID | None = None
     merchant_name: str | None = None
     amount: float | None = None
@@ -50,6 +57,7 @@ class TransactionOut(BaseModel):
 
 class TransactionUpdate(BaseModel):
     """Input for updating a transaction (all fields optional)."""
+    type: TransactionType | None = None
     merchant_name: str | None = None
     amount: float | None = None
     transaction_date: date | None = None
@@ -70,9 +78,10 @@ class AIExtractedData(BaseModel):
     """Structured output from the Qwen-VL model."""
     merchant: str | None = None
     total_amount: float | None = None
-    date: str | None = None                      # Kept as string — AI may return various formats
+    date: str | None = None
     items: list[dict[str, Any]] = Field(default_factory=list)
     suggested_category: str | None = None
+    transaction_type: str | None = None
 
 
 class OCRResponse(BaseModel):

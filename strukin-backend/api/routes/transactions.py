@@ -53,11 +53,14 @@ async def create_transaction(
     merchant_name: str = Form(..., description="Nama merchant/toko"),
     amount: float = Form(..., gt=0, description="Nominal transaksi"),
     transaction_date: str = Form(..., description="Tanggal (YYYY-MM-DD)"),
+    type: str = Form("expense", description="income atau expense"),
     category_id: str | None = Form(None, description="UUID kategori"),
     file: UploadFile | None = File(None, description="Foto struk (opsional)"),
     user_id: str = Depends(get_current_user),
 ):
     """Create a transaction manually, with an optional receipt image."""
+    if type not in ("income", "expense"):
+        raise HTTPException(status_code=400, detail="type harus 'income' atau 'expense'.")
     image_path = None
     if file and file.size and file.size > 0:
         content_type = file.content_type or ""
@@ -82,6 +85,7 @@ async def create_transaction(
         "merchant_name": merchant_name.strip(),
         "amount": amount,
         "transaction_date": transaction_date,
+        "type": type,
     }
     if category_id:
         payload["category_id"] = category_id
@@ -114,6 +118,8 @@ async def update_transaction(
         )
     if "transaction_date" in updates:
         updates["transaction_date"] = updates["transaction_date"].isoformat()
+    if "category_id" in updates:
+        updates["category_id"] = str(updates["category_id"])
     try:
         row = await db_service.update_transaction(user_id, transaction_id, updates)
     except Exception as exc:

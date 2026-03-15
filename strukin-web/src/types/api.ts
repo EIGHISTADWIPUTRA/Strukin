@@ -11,6 +11,7 @@ export interface CategoryOut {
 export interface TransactionOut {
   id: string;
   user_id: string;
+  type: "income" | "expense";
   category_id: string | null;
   merchant_name: string | null;
   amount: number | null;
@@ -33,6 +34,7 @@ export interface AIExtractedData {
   date: string | null;
   items: Array<Record<string, unknown>>;
   suggested_category: string | null;
+  transaction_type: string | null;
 }
 
 export interface OCRResponse {

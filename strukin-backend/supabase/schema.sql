@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
+    type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('income', 'expense')),
     merchant_name TEXT,
     amount NUMERIC(14, 2),
     transaction_date DATE,
