@@ -105,10 +105,10 @@ async def process_receipt(
         transaction_payload = {
             "merchant_name": ai_data.get("merchant"),
             "amount": ai_data.get("total_amount"),
-            "transaction_date": tx_date,
+            "transaction_date": tx_date.isoformat() if tx_date else None,
             "category_id": matched_category["id"] if matched_category else None,
-            "image_path": None,         # Storage upload can be added later
-            "raw_ai_output": ai_data,   # Full AI JSON persisted for auditing
+            "image_path": None,
+            "raw_ai_output": ai_data,
         }
         # Remove None values to avoid overwriting DB defaults
         transaction_payload = {k: v for k, v in transaction_payload.items() if v is not None}
