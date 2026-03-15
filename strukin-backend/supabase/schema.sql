@@ -29,6 +29,21 @@ CREATE POLICY "Users can insert own profile"
     ON public.profiles FOR INSERT
     WITH CHECK (auth.uid() = id);
 
+-- Auto-create profile when a new user signs up (mencegah 404 saat app baca profiles)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (id, full_name)
+    VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 -- ─── Table: categories ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,11 +107,17 @@ CREATE POLICY "Users can delete own transactions"
     ON public.transactions FOR DELETE
     USING (user_id = auth.uid());
 
--- ─── Optional: seed global categories ───────────────────────────────────────
+-- ─── Optional: seed global categories (jalankan sekali) ─────────────────────
 -- INSERT INTO public.categories (id, user_id, name, icon, color) VALUES
 --   (gen_random_uuid(), NULL, 'Makanan & Minuman', '🍽️', '#22C55E'),
 --   (gen_random_uuid(), NULL, 'Transportasi', '🚗', '#3B82F6'),
 --   (gen_random_uuid(), NULL, 'Belanja', '🛒', '#F59E0B'),
 --   (gen_random_uuid(), NULL, 'Kesehatan', '💊', '#EF4444'),
---   (gen_random_uuid(), NULL, 'Lainnya', '📌', '#6B7280')
--- ON CONFLICT DO NOTHING;
+--   (gen_random_uuid(), NULL, 'Lainnya', '📌', '#6B7280');
+
+-- ─── Optional: backfill profiles untuk user yang sudah ada (sekali saja) ───
+-- Jalankan jika sebelumnya ada user yang daftar sebelum trigger dibuat:
+-- INSERT INTO public.profiles (id, full_name)
+-- SELECT id, COALESCE(raw_user_meta_data->>'full_name', email)
+-- FROM auth.users
+-- ON CONFLICT (id) DO NOTHING;

@@ -40,10 +40,13 @@ app = FastAPI(
 
 # ─── Middleware ─────────────────────────────────────────────────────────────
 
-# CORS — adjust origins before production deployment
+# CORS — allow frontend origin (required when allow_credentials=True; "*" is not allowed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # Restrict to your frontend domain in production
+    allow_origins=[
+        "https://app.strukin.eighista.me",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
