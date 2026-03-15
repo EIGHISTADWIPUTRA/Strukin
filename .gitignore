@@ -1,0 +1,9 @@
+# Cursor
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/

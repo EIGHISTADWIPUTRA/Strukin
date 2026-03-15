@@ -1,0 +1,29 @@
+# Strukin Backend — Python Dependencies
+# Optimized for 2GB RAM environment
+
+# Web framework & server
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Supabase client (v2)
+supabase==2.10.0
+
+# JWT verification
+pyjwt[crypto]==2.10.1
+
+# Image processing
+Pillow==11.1.0
+
+# Async HTTP (for DashScope API calls)
+# Note: supabase 2.10.0 requires httpx>=0.26,<0.28
+httpx==0.27.2
+
+# Environment management
+python-dotenv==1.1.0
+
+# Data validation
+pydantic[email]==2.10.6
+pydantic-settings==2.7.1
+
+# Multipart form data handling (for file uploads)
+python-multipart==0.0.20
