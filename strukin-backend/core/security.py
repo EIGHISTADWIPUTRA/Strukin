@@ -19,12 +19,13 @@ from starlette.responses import JSONResponse
 from core.config import settings
 
 # Supabase now signs JWTs with ES256; JWKS endpoint provides the public key
-_ALGORITHM = "ES256"
+_ALGORITHMS = ["ES256", "HS256"]  # ES256 for new projects, HS256 as fallback
 _AUDIENCE = "authenticated"
 
-# PyJWKClient fetches and caches keys from the JWKS endpoint automatically
+# Supabase's JWKS endpoint requires the anon key as an apikey header
 _jwks_client = PyJWKClient(
     f"{settings.SUPABASE_URL}/auth/v1/jwks",
+    headers={"apikey": settings.SUPABASE_ANON_KEY},
     cache_keys=True,
     lifespan=600,  # re-fetch keys every 10 minutes
 )
@@ -45,7 +46,7 @@ def verify_supabase_jwt(token: str) -> dict:
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=[_ALGORITHM],
+            algorithms=_ALGORITHMS,
             audience=_AUDIENCE,
         )
         return payload
