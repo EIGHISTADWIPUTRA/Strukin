@@ -40,7 +40,13 @@ app = FastAPI(
 
 # ─── Middleware ─────────────────────────────────────────────────────────────
 
-# CORS — allow frontend origin (required when allow_credentials=True; "*" is not allowed)
+# JWT authentication — ditambah PERTAMA (innermost), agar CORSMiddleware bisa
+# membungkus semua response termasuk 401 dari JWTMiddleware.
+app.add_middleware(JWTMiddleware)
+
+# CORS — ditambah TERAKHIR (outermost) sehingga header CORS selalu ada di setiap
+# response, termasuk yang di-short-circuit oleh JWTMiddleware (401, 403).
+# Catatan: allow_origins tidak boleh "*" jika allow_credentials=True.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -51,9 +57,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# JWT authentication — must be added AFTER CORSMiddleware
-app.add_middleware(JWTMiddleware)
 
 # ─── Global Exception Handlers ─────────────────────────────────────────────
 
