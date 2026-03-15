@@ -5,11 +5,9 @@ import {
   PaginatedTransactions,
   TransactionOut,
   CategoryOut,
-  Profile,
   OCRResponse,
 } from "@/types/api";
 import { apiGet, apiPost, apiPut, apiDelete, apiGetBlob, getAccessToken } from "@/lib/api";
-import { getProfile } from "@/lib/profile";
 import {
   PieChart,
   Pie,
@@ -23,7 +21,7 @@ import {
   Legend,
 } from "recharts";
 import {
-  Upload, Loader2, X, Check, Pencil, Trash2, Receipt,
+  Loader2, X, Check, Pencil, Trash2, Receipt,
   Plus, Camera, FileText, TrendingUp, TrendingDown, ArrowUpDown,
 } from "lucide-react";
 
@@ -80,14 +78,6 @@ function useCategories() {
   return { data, loading, refresh };
 }
 
-function useProfile() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    getProfile().then((p) => { setProfile(p); setLoading(false); });
-  }, []);
-  return { profile, loading };
-}
 
 /** Format tanggal local sebagai YYYY-MM-DD tanpa konversi UTC */
 function localDateStr(d: Date): string {
@@ -204,7 +194,6 @@ const KPI_LABELS: Record<KpiRange, string> = {
 export default function DashboardPage() {
   const { data: txData, loading: txLoading, refresh } = useTransactions();
   const { data: categories, refresh: refreshCategories } = useCategories();
-  const { profile } = useProfile();
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -244,17 +233,6 @@ export default function DashboardPage() {
   const totalIncome = kpiTransactions.filter((t) => t.type === "income").reduce((s, t) => s + (t.amount ?? 0), 0);
   const totalExpense = kpiTransactions.filter((t) => t.type !== "income").reduce((s, t) => s + (t.amount ?? 0), 0);
   const netBalance = totalIncome - totalExpense;
-  const budget = profile?.monthly_budget ?? 0;
-  const now = new Date();
-  const thisMonthStr = String(now.getMonth() + 1).padStart(2, "0");
-  const thisYearStr = String(now.getFullYear());
-  const monthExpense = useMemo(() =>
-    transactions.filter((t) => t.type !== "income" && t.transaction_date && t.transaction_date.slice(0, 4) === thisYearStr && t.transaction_date.slice(5, 7) === thisMonthStr)
-      .reduce((s, t) => s + (t.amount ?? 0), 0),
-    [transactions, thisYearStr, thisMonthStr],
-  );
-  const remaining = Math.max(0, budget - monthExpense);
-  const budgetPercent = budget > 0 ? Math.min(100, (remaining / budget) * 100) : 0;
 
   const chartData = useMemo(() => buildChartData(transactions, timeRange), [transactions, timeRange]);
 
@@ -490,12 +468,12 @@ export default function DashboardPage() {
   return (
     <>
       {/* KPI Time Range Selector */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <h2 className="text-lg font-bold text-slate-900">Ringkasan</h2>
-        <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+        <div className="flex rounded-lg border border-slate-200 overflow-x-auto no-scrollbar">
           {(["all", "daily", "weekly", "monthly", "yearly"] as KpiRange[]).map((r) => (
             <button key={r} type="button" onClick={() => setKpiRange(r)}
-              className={`px-2.5 py-1 text-xs font-medium transition-colors ${kpiRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+              className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${kpiRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
               {KPI_LABELS[r]}
             </button>
           ))}
@@ -503,159 +481,171 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-8">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-emerald-600" /></div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0"><TrendingUp className="w-4 h-4 text-emerald-600" /></div>
             <p className="text-xs font-medium text-slate-500">Pemasukan</p>
           </div>
-          <p className="text-xl font-bold text-emerald-600">{txLoading ? "—" : formatIdr(totalIncome)}</p>
+          <p className="text-lg sm:text-xl font-bold text-emerald-600 truncate">{txLoading ? "—" : formatIdr(totalIncome)}</p>
           <p className="text-[10px] text-slate-400 mt-1">{KPI_LABELS[kpiRange]}</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center"><TrendingDown className="w-4 h-4 text-red-500" /></div>
+            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0"><TrendingDown className="w-4 h-4 text-red-500" /></div>
             <p className="text-xs font-medium text-slate-500">Pengeluaran</p>
           </div>
-          <p className="text-xl font-bold text-red-500">{txLoading ? "—" : formatIdr(totalExpense)}</p>
+          <p className="text-lg sm:text-xl font-bold text-red-500 truncate">{txLoading ? "—" : formatIdr(totalExpense)}</p>
           <p className="text-[10px] text-slate-400 mt-1">{KPI_LABELS[kpiRange]}</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${netBalance >= 0 ? "bg-emerald-100" : "bg-red-100"}`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${netBalance >= 0 ? "bg-emerald-100" : "bg-red-100"}`}>
               <ArrowUpDown className={`w-4 h-4 ${netBalance >= 0 ? "text-emerald-600" : "text-red-500"}`} />
             </div>
             <p className="text-xs font-medium text-slate-500">Saldo Bersih</p>
           </div>
-          <p className={`text-xl font-bold ${netBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+          <p className={`text-lg sm:text-xl font-bold truncate ${netBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
             {txLoading ? "—" : `${netBalance >= 0 ? "+" : ""}${formatIdr(netBalance)}`}
           </p>
           <p className="text-[10px] text-slate-400 mt-1">{netBalance >= 0 ? "Surplus" : "Defisit"}</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <p className="text-xs font-medium text-slate-500 mb-2">Sisa Budget</p>
-          {budget <= 0 ? (
-            <p className="text-slate-400 text-sm">Set di profile</p>
+      </div>
+
+      {/* Donut Charts — Pengeluaran & Pemasukan per Kategori */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-8">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h3 className="font-bold text-sm sm:text-base text-slate-900">Pengeluaran per Kategori</h3>
+            <span className="text-[10px] sm:text-xs text-slate-400">{KPI_LABELS[kpiRange]}</span>
+          </div>
+          {expenseDonut.length === 0 ? (
+            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data pengeluaran</p>
           ) : (
             <>
-              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden mb-1">
-                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${budgetPercent}%` }} />
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={expenseDonut} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value" nameKey="name" label={false}>
+                    {expenseDonut.map((_, i) => (
+                      <Cell key={i} fill={["#ef4444", "#f87171", "#fca5a5", "#f59e0b", "#fb923c", "#3b82f6", "#8b5cf6", "#6b7280"][i % 8]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => formatIdr(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 justify-center">
+                {expenseDonut.map((d, i) => (
+                  <div key={d.name} className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ["#ef4444", "#f87171", "#fca5a5", "#f59e0b", "#fb923c", "#3b82f6", "#8b5cf6", "#6b7280"][i % 8] }} />
+                    <span className="truncate max-w-[100px]">{d.name}</span>
+                  </div>
+                ))}
               </div>
-              <p className="text-sm font-semibold text-slate-700">{formatIdr(remaining)}</p>
-              <p className="text-[10px] text-slate-400 mt-1">Budget bulanan</p>
+            </>
+          )}
+        </div>
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h3 className="font-bold text-sm sm:text-base text-slate-900">Pemasukan per Kategori</h3>
+            <span className="text-[10px] sm:text-xs text-slate-400">{KPI_LABELS[kpiRange]}</span>
+          </div>
+          {incomeDonut.length === 0 ? (
+            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data pemasukan</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={incomeDonut} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value" nameKey="name" label={false}>
+                    {incomeDonut.map((_, i) => (
+                      <Cell key={i} fill={["#22c55e", "#4ade80", "#86efac", "#A3E635", "#bef264", "#14b8a6", "#0ea5e9", "#6366f1"][i % 8]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => formatIdr(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 justify-center">
+                {incomeDonut.map((d, i) => (
+                  <div key={d.name} className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ["#22c55e", "#4ade80", "#86efac", "#A3E635", "#bef264", "#14b8a6", "#0ea5e9", "#6366f1"][i % 8] }} />
+                    <span className="truncate max-w-[100px]">{d.name}</span>
+                  </div>
+                ))}
+              </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Donut Charts — Pengeluaran & Pemasukan per Kategori */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-900">Pengeluaran per Kategori</h3>
-            <span className="text-xs text-slate-400">{KPI_LABELS[kpiRange]}</span>
-          </div>
-          {expenseDonut.length === 0 ? (
-            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data pengeluaran</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={expenseDonut} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value" nameKey="name"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                  {expenseDonut.map((_, i) => (
-                    <Cell key={i} fill={["#ef4444", "#f87171", "#fca5a5", "#f59e0b", "#fb923c", "#3b82f6", "#8b5cf6", "#6b7280"][i % 8]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: number) => formatIdr(v)} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-900">Pemasukan per Kategori</h3>
-            <span className="text-xs text-slate-400">{KPI_LABELS[kpiRange]}</span>
-          </div>
-          {incomeDonut.length === 0 ? (
-            <p className="text-slate-500 text-sm py-8 text-center">Belum ada data pemasukan</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={incomeDonut} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value" nameKey="name"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                  {incomeDonut.map((_, i) => (
-                    <Cell key={i} fill={["#22c55e", "#4ade80", "#86efac", "#A3E635", "#bef264", "#14b8a6", "#0ea5e9", "#6366f1"][i % 8]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: number) => formatIdr(v)} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
       {/* Tren Keuangan Bar Chart */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-slate-900">Tren Keuangan</h3>
-          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <h3 className="font-bold text-sm sm:text-base text-slate-900">Tren Keuangan</h3>
+          <div className="flex rounded-lg border border-slate-200 overflow-x-auto no-scrollbar">
             {(["daily", "weekly", "monthly", "yearly"] as TimeRange[]).map((r) => (
               <button key={r} type="button" onClick={() => setTimeRange(r)}
-                className={`px-2.5 py-1 text-xs font-medium transition-colors ${timeRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${timeRange === r ? "bg-primary text-slate-900" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
                 {TIME_LABELS[r]}
               </button>
             ))}
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={chartData}>
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : `${v}`} />
-            <Tooltip formatter={(v: number) => formatIdr(v)} />
-            <Legend />
-            <Bar dataKey="income" name="Pemasukan" fill="#22c55e" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="expense" name="Pengeluaran" fill="#ef4444" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="-mx-2 sm:mx-0">
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={chartData} margin={{ left: -10, right: 4, top: 4, bottom: 0 }}>
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0} />
+              <YAxis tick={{ fontSize: 10 }} width={45} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : `${v}`} />
+              <Tooltip formatter={(v: number) => formatIdr(v)} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="income" name="Pemasukan" fill="#22c55e" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="expense" name="Pengeluaran" fill="#ef4444" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       {/* Recent Activity */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-24">
-        <h3 className="font-bold text-slate-900 p-4 border-b border-slate-100">Aktivitas Terbaru</h3>
+        <h3 className="font-bold text-sm sm:text-base text-slate-900 p-4 border-b border-slate-100">Aktivitas Terbaru</h3>
         {recent.length === 0 && !txLoading ? (
-          <div className="p-12 text-center">
-            <img src="https://illustrations.popsy.co/amber/receipt.svg" alt="" className="w-32 h-32 mx-auto mb-4 opacity-80" />
-            <p className="text-slate-600 mb-2">Belum ada transaksi</p>
-            <p className="text-sm text-slate-500">Tambah transaksi dengan tombol + di bawah.</p>
+          <div className="p-8 sm:p-12 text-center">
+            <img src="https://illustrations.popsy.co/amber/receipt.svg" alt="" className="w-24 h-24 sm:w-32 sm:h-32 mx-auto mb-4 opacity-80" />
+            <p className="text-slate-600 mb-2 text-sm sm:text-base">Belum ada transaksi</p>
+            <p className="text-xs sm:text-sm text-slate-500">Tambah transaksi dengan tombol + di bawah.</p>
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
             {recent.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 p-4 hover:bg-slate-50">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${t.type === "income" ? "bg-emerald-100" : "bg-red-50"}`}>
-                  {t.type === "income" ? "💰" : (t.category_id ? (categoryMap.get(t.category_id)?.icon ?? "📌") : "📌")}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-900 truncate">{t.merchant_name ?? "—"}</p>
-                  <p className="text-sm text-slate-500">
-                    {t.transaction_date ?? "—"} · {t.type === "income" ? "Pemasukan" : (t.category_id ? categoryMap.get(t.category_id)?.name ?? "—" : "Lainnya")}
-                  </p>
-                </div>
-                <p className={`font-semibold shrink-0 ${t.type === "income" ? "text-emerald-600" : "text-red-500"}`}>
-                  {t.amount != null ? `${t.type === "income" ? "+" : "-"}${formatIdr(t.amount)}` : "—"}
-                </p>
-                <div className="flex gap-1 shrink-0">
-                  {t.image_path && (
-                    <button type="button" onClick={() => openReceipt(t.image_path!)} className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors" aria-label="Lihat Struk">
-                      <Receipt className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button type="button" onClick={() => openEdit(t)} className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors" aria-label="Edit">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button type="button" onClick={() => setDeleteTx(t)} className="p-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors" aria-label="Hapus">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+              <li key={t.id} className="p-3 sm:p-4 hover:bg-slate-50 active:bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-base sm:text-lg shrink-0 ${t.type === "income" ? "bg-emerald-100" : "bg-red-50"}`}>
+                    {t.type === "income" ? "💰" : (t.category_id ? (categoryMap.get(t.category_id)?.icon ?? "📌") : "📌")}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-sm sm:text-base text-slate-900 truncate">{t.merchant_name ?? "—"}</p>
+                      <p className={`font-semibold text-sm sm:text-base shrink-0 ${t.type === "income" ? "text-emerald-600" : "text-red-500"}`}>
+                        {t.amount != null ? `${t.type === "income" ? "+" : "-"}${formatIdr(t.amount)}` : "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <p className="text-xs sm:text-sm text-slate-500 truncate">
+                        {t.transaction_date ?? "—"} · {t.type === "income" ? "Pemasukan" : (t.category_id ? categoryMap.get(t.category_id)?.name ?? "—" : "Lainnya")}
+                      </p>
+                      <div className="flex gap-1 shrink-0">
+                        {t.image_path && (
+                          <button type="button" onClick={() => openReceipt(t.image_path!)} className="p-1.5 sm:p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors" aria-label="Lihat Struk">
+                            <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => openEdit(t)} className="p-1.5 sm:p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors" aria-label="Edit">
+                          <Pencil className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        </button>
+                        <button type="button" onClick={() => setDeleteTx(t)} className="p-1.5 sm:p-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors" aria-label="Hapus">
+                          <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </li>
             ))}
@@ -665,58 +655,58 @@ export default function DashboardPage() {
 
       {/* FAB */}
       <input type="file" accept="image/*" className="hidden" id="ocr-file" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setOcrFile(f); setFabOpen(false); } e.target.value = ""; }} />
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
-        {ocrError && <p className="text-sm text-red-600 bg-white border border-red-200 rounded-lg px-3 py-2 shadow">{ocrError}</p>}
+      <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2">
+        {ocrError && <p className="text-xs sm:text-sm text-red-600 bg-white border border-red-200 rounded-lg px-3 py-2 shadow max-w-[280px] sm:max-w-none">{ocrError}</p>}
         {ocrFile && (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-2 flex items-center gap-2">
-            <span className="text-sm text-slate-700 truncate max-w-[180px]">{ocrFile.name}</span>
+          <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-3 sm:px-4 py-2 flex items-center gap-2">
+            <span className="text-xs sm:text-sm text-slate-700 truncate max-w-[120px] sm:max-w-[180px]">{ocrFile.name}</span>
             <button type="button" onClick={() => setOcrFile(null)} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
-            <button type="button" onClick={handleOcrSubmit} disabled={ocrLoading} className="bg-primary hover:bg-primary-hover text-slate-900 px-3 py-1 rounded-lg text-sm font-bold disabled:opacity-70">{ocrLoading ? "Proses..." : "Proses"}</button>
+            <button type="button" onClick={handleOcrSubmit} disabled={ocrLoading} className="bg-primary hover:bg-primary-hover text-slate-900 px-3 py-1 rounded-lg text-xs sm:text-sm font-bold disabled:opacity-70">{ocrLoading ? "Proses..." : "Proses"}</button>
           </div>
         )}
         {fabOpen && (
           <div className="flex flex-col items-end gap-2 mb-2">
-            <button type="button" onClick={() => document.getElementById("ocr-file")?.click()} className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50">
+            <button type="button" onClick={() => document.getElementById("ocr-file")?.click()} className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50 active:bg-slate-100">
               <Camera className="w-5 h-5 text-primary" /><span className="text-sm font-medium text-slate-900">Scan Struk (AI)</span>
             </button>
             <button type="button" onClick={() => { setManualOpen(true); setFabOpen(false); setManualForm({ type: "expense", merchant_name: "", amount: "", transaction_date: localDateStr(new Date()), category_id: "" }); }}
-              className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50">
+              className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 hover:bg-slate-50 active:bg-slate-100">
               <FileText className="w-5 h-5 text-blue-600" /><span className="text-sm font-medium text-slate-900">Tambah Manual</span>
             </button>
           </div>
         )}
         <button type="button" onClick={() => setFabOpen(!fabOpen)} disabled={ocrLoading}
-          className={`w-14 h-14 bg-primary hover:bg-primary-hover text-slate-900 rounded-full shadow-lg flex items-center justify-center disabled:opacity-70 transition-all ${fabOpen ? "rotate-45" : ""}`}>
-          {ocrLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <Plus className="w-7 h-7" />}
+          className={`w-12 h-12 sm:w-14 sm:h-14 bg-primary hover:bg-primary-hover text-slate-900 rounded-full shadow-lg flex items-center justify-center disabled:opacity-70 transition-all ${fabOpen ? "rotate-45" : ""}`}>
+          {ocrLoading ? <Loader2 className="w-6 h-6 sm:w-7 sm:h-7 animate-spin" /> : <Plus className="w-6 h-6 sm:w-7 sm:h-7" />}
         </button>
       </div>
       {fabOpen && <div className="fixed inset-0 z-40" onClick={() => setFabOpen(false)} />}
 
       {/* OCR loading */}
       {ocrLoading && (
-        <div className="fixed inset-0 z-40 bg-black/20 flex items-center justify-center">
-          <div className="bg-white rounded-2xl p-8 shadow-xl flex flex-col items-center gap-4">
-            <Loader2 className="w-12 h-12 text-primary animate-spin" /><p className="font-medium text-slate-900">AI sedang membaca strukmu...</p>
+        <div className="fixed inset-0 z-40 bg-black/20 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col items-center gap-4">
+            <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 text-primary animate-spin" /><p className="font-medium text-sm sm:text-base text-slate-900 text-center">AI sedang membaca strukmu...</p>
           </div>
         </div>
       )}
 
       {/* OCR success modal */}
       {modalOpen && ocrResult && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900">Struk berhasil disimpan</h3>
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Struk berhasil disimpan</h3>
               <button type="button" onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-600">
+            <div className="p-4 sm:p-6 space-y-4">
+              <p className="text-xs sm:text-sm text-slate-600">
                 Merchant <strong>{ocrResult.extracted.merchant ?? "—"}</strong>, Nominal <strong>{ocrResult.extracted.total_amount != null ? formatIdr(ocrResult.extracted.total_amount) : "—"}</strong>, Tanggal <strong>{ocrResult.extracted.date ?? "—"}</strong>.
                 {ocrResult.category_matched && ` Kategori: ${ocrResult.category_matched.name}.`}
               </p>
             </div>
-            <div className="p-6 border-t border-slate-100">
-              <button type="button" onClick={() => setModalOpen(false)} className="w-full bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+            <div className="p-4 sm:p-6 border-t border-slate-100">
+              <button type="button" onClick={() => setModalOpen(false)} className="w-full bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm sm:text-base">
                 <Check className="w-5 h-5" />Selesai
               </button>
             </div>
@@ -726,35 +716,35 @@ export default function DashboardPage() {
 
       {/* Edit modal */}
       {editTx && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900">Edit Transaksi</h3>
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md max-h-[85vh] sm:max-h-[90vh] overflow-y-auto">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Edit Transaksi</h3>
               <button type="button" onClick={() => setEditTx(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-4 sm:p-6 space-y-4">
               <TypeToggle value={editForm.type} onChange={(v) => setEditForm((f) => ({ ...f, type: v }))} />
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Merchant</label>
                 <input type="text" value={editForm.merchant_name} onChange={(e) => setEditForm((f) => ({ ...f, merchant_name: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nominal (Rp)</label>
-                <input type="number" value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <input type="number" inputMode="numeric" value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Tanggal</label>
                 <input type="date" value={editForm.transaction_date} onChange={(e) => setEditForm((f) => ({ ...f, transaction_date: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <CategorySelect value={editForm.category_id} onValueChange={(v) => setEditForm((f) => ({ ...f, category_id: v }))}
                 showNew={showNewCat} setShowNew={setShowNewCat} newForm={newCatForm} setNewForm={setNewCatForm} newLoading={newCatLoading} onCreateNew={handleCreateCategory} />
             </div>
-            <div className="p-6 border-t border-slate-100 flex gap-3">
-              <button type="button" onClick={() => setEditTx(null)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50">Batal</button>
-              <button type="button" onClick={handleEditSave} disabled={editLoading} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70">{editLoading ? "Menyimpan..." : "Simpan"}</button>
+            <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white">
+              <button type="button" onClick={() => setEditTx(null)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 text-sm sm:text-base">Batal</button>
+              <button type="button" onClick={handleEditSave} disabled={editLoading} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70 text-sm sm:text-base">{editLoading ? "Menyimpan..." : "Simpan"}</button>
             </div>
           </div>
         </div>
@@ -762,17 +752,17 @@ export default function DashboardPage() {
 
       {/* Delete modal */}
       {deleteTx && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full">
-            <div className="p-6">
-              <h3 className="font-bold text-slate-900 mb-2">Hapus Transaksi?</h3>
-              <p className="text-sm text-slate-600">
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-sm">
+            <div className="p-4 sm:p-6">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900 mb-2">Hapus Transaksi?</h3>
+              <p className="text-xs sm:text-sm text-slate-600">
                 <strong>{deleteTx.merchant_name ?? "—"}</strong> sebesar <strong>{deleteTx.amount != null ? formatIdr(deleteTx.amount) : "—"}</strong> akan dihapus permanen.
               </p>
             </div>
-            <div className="p-6 border-t border-slate-100 flex gap-3">
-              <button type="button" onClick={() => setDeleteTx(null)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50">Batal</button>
-              <button type="button" onClick={handleDelete} disabled={deleteLoading} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold disabled:opacity-70">{deleteLoading ? "Menghapus..." : "Hapus"}</button>
+            <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setDeleteTx(null)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 text-sm sm:text-base">Batal</button>
+              <button type="button" onClick={handleDelete} disabled={deleteLoading} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold disabled:opacity-70 text-sm sm:text-base">{deleteLoading ? "Menghapus..." : "Hapus"}</button>
             </div>
           </div>
         </div>
@@ -780,13 +770,13 @@ export default function DashboardPage() {
 
       {/* Receipt preview */}
       {(previewUrl || previewLoading) && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h3 className="font-bold text-slate-900">Struk Asli</h3>
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Struk Asli</h3>
               <button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-50">
+            <div className="flex-1 overflow-auto p-3 sm:p-4 flex items-center justify-center bg-slate-50">
               {previewLoading ? <Loader2 className="w-10 h-10 text-primary animate-spin" /> : previewUrl ? <img src={previewUrl} alt="Struk" className="max-w-full max-h-[70vh] rounded-lg shadow" /> : null}
             </div>
           </div>
@@ -795,46 +785,46 @@ export default function DashboardPage() {
 
       {/* Manual transaction modal */}
       {manualOpen && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900">Tambah Transaksi Manual</h3>
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md max-h-[85vh] sm:max-h-[90vh] overflow-y-auto">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Tambah Transaksi Manual</h3>
               <button type="button" onClick={() => setManualOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-4 sm:p-6 space-y-4">
               <TypeToggle value={manualForm.type} onChange={(v) => setManualForm((f) => ({ ...f, type: v }))} />
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">{manualForm.type === "income" ? "Sumber Pemasukan" : "Merchant / Keterangan"} *</label>
                 <input type="text" placeholder={manualForm.type === "income" ? "Contoh: Gaji, Freelance" : "Contoh: Indomaret, Gojek"}
                   value={manualForm.merchant_name} onChange={(e) => setManualForm((f) => ({ ...f, merchant_name: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nominal (Rp) *</label>
-                <input type="number" placeholder="50000" value={manualForm.amount} onChange={(e) => setManualForm((f) => ({ ...f, amount: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <input type="number" inputMode="numeric" placeholder="50000" value={manualForm.amount} onChange={(e) => setManualForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Tanggal *</label>
                 <input type="date" value={manualForm.transaction_date} onChange={(e) => setManualForm((f) => ({ ...f, transaction_date: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <CategorySelect value={manualForm.category_id} onValueChange={(v) => setManualForm((f) => ({ ...f, category_id: v }))}
                 showNew={manualShowNewCat} setShowNew={setManualShowNewCat} newForm={manualNewCatForm} setNewForm={setManualNewCatForm} newLoading={manualNewCatLoading} onCreateNew={handleManualCreateCategory} />
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Foto (opsional)</label>
                 <div className="flex items-center gap-3">
-                  <label className="flex-1 border-2 border-dashed border-slate-200 rounded-lg p-3 text-center cursor-pointer hover:border-primary transition-colors">
+                  <label className="flex-1 border-2 border-dashed border-slate-200 rounded-lg p-3 text-center cursor-pointer hover:border-primary active:border-primary transition-colors">
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { setManualFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-                    {manualFile ? <span className="text-sm text-slate-700 truncate block">{manualFile.name}</span> : <span className="text-sm text-slate-400">Klik untuk pilih foto</span>}
+                    {manualFile ? <span className="text-xs sm:text-sm text-slate-700 truncate block">{manualFile.name}</span> : <span className="text-xs sm:text-sm text-slate-400">Klik untuk pilih foto</span>}
                   </label>
                   {manualFile && <button type="button" onClick={() => setManualFile(null)} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>}
                 </div>
               </div>
             </div>
-            <div className="p-6 border-t border-slate-100 flex gap-3">
-              <button type="button" onClick={() => setManualOpen(false)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50">Batal</button>
-              <button type="button" onClick={handleManualSubmit} disabled={manualLoading} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70">{manualLoading ? "Menyimpan..." : "Simpan"}</button>
+            <div className="p-4 sm:p-6 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white">
+              <button type="button" onClick={() => setManualOpen(false)} className="flex-1 border border-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-50 text-sm sm:text-base">Batal</button>
+              <button type="button" onClick={handleManualSubmit} disabled={manualLoading} className="flex-1 bg-primary hover:bg-primary-hover text-slate-900 py-3 rounded-xl font-bold disabled:opacity-70 text-sm sm:text-base">{manualLoading ? "Menyimpan..." : "Simpan"}</button>
             </div>
           </div>
         </div>
