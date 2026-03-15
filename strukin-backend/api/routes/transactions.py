@@ -62,24 +62,28 @@ async def create_transaction(
     if type not in ("income", "expense"):
         raise HTTPException(status_code=400, detail="type harus 'income' atau 'expense'.")
     image_path = None
-    if file and file.size and file.size > 0:
+    if file and file.filename:
         content_type = file.content_type or ""
         if content_type not in _ALLOWED_IMAGE_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                 detail=f"Tipe file '{content_type}' tidak didukung. Gunakan JPEG, PNG, atau WebP.",
             )
+        # Baca dulu lalu cek panjang -- jangan andalkan file.size karena bisa None
         file_bytes = await file.read()
-        if len(file_bytes) > _MAX_FILE_SIZE:
+        if len(file_bytes) == 0:
+            file_bytes = None  # type: ignore[assignment]
+        if file_bytes and len(file_bytes) > _MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="Ukuran file melebihi batas 10 MB.",
             )
-        ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif"}
-        ext = ext_map.get(content_type, ".jpg")
-        filename = f"{user_id}_{uuid.uuid4().hex[:12]}{ext}"
-        (UPLOAD_DIR / filename).write_bytes(file_bytes)
-        image_path = f"/api/v1/ocr/receipts/{filename}"
+        if file_bytes:
+            ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif"}
+            ext = ext_map.get(content_type, ".jpg")
+            filename = f"{user_id}_{uuid.uuid4().hex[:12]}{ext}"
+            (UPLOAD_DIR / filename).write_bytes(file_bytes)
+            image_path = f"/api/v1/ocr/receipts/{filename}"
 
     payload: dict = {
         "merchant_name": merchant_name.strip(),
@@ -110,7 +114,7 @@ async def update_transaction(
     user_id: str = Depends(get_current_user),
 ):
     """Update a transaction owned by the authenticated user."""
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(mode="json", exclude_none=True)
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

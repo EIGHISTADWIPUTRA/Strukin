@@ -97,7 +97,12 @@ async def process_receipt(
 
     # ── 5. Parse extracted fields ────────────────────────────────────────────
     merchant = (ai_data.get("merchant") or "").strip() or None
-    amount = ai_data.get("total_amount")
+    # AI terkadang mengembalikan total_amount sebagai string, cast ke float
+    _raw_amount = ai_data.get("total_amount")
+    try:
+        amount: float | None = float(_raw_amount) if _raw_amount is not None else None
+    except (TypeError, ValueError):
+        amount = None
 
     tx_date_raw = ai_data.get("date")
     tx_date = None

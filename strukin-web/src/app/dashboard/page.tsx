@@ -88,6 +88,14 @@ function useProfile() {
   return { profile, loading };
 }
 
+/** Format tanggal local sebagai YYYY-MM-DD tanpa konversi UTC */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function buildChartData(transactions: TransactionOut[], range: TimeRange) {
   const now = new Date();
   const data: { label: string; income: number; expense: number }[] = [];
@@ -96,7 +104,7 @@ function buildChartData(transactions: TransactionOut[], range: TimeRange) {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      const ds = d.toISOString().slice(0, 10);
+      const ds = localDateStr(d);
       const dayTx = transactions.filter((t) => t.transaction_date === ds);
       data.push({
         label: ds.slice(5),
@@ -110,8 +118,8 @@ function buildChartData(transactions: TransactionOut[], range: TimeRange) {
       weekEnd.setDate(weekEnd.getDate() - w * 7);
       const weekStart = new Date(weekEnd);
       weekStart.setDate(weekStart.getDate() - 6);
-      const startStr = weekStart.toISOString().slice(0, 10);
-      const endStr = weekEnd.toISOString().slice(0, 10);
+      const startStr = localDateStr(weekStart);
+      const endStr = localDateStr(weekEnd);
       const wTx = transactions.filter((t) => t.transaction_date && t.transaction_date >= startStr && t.transaction_date <= endStr);
       data.push({
         label: `${startStr.slice(5)}`,
@@ -123,11 +131,11 @@ function buildChartData(transactions: TransactionOut[], range: TimeRange) {
     for (let m = 5; m >= 0; m--) {
       const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
       const y = d.getFullYear();
-      const mo = d.getMonth();
+      const mo = String(d.getMonth() + 1).padStart(2, "0");
       const mTx = transactions.filter((t) => {
         if (!t.transaction_date) return false;
-        const dt = new Date(t.transaction_date);
-        return dt.getFullYear() === y && dt.getMonth() === mo;
+        // parse langsung dari string YYYY-MM-DD, hindari timezone shift
+        return t.transaction_date.slice(0, 4) === String(y) && t.transaction_date.slice(5, 7) === mo;
       });
       const label = d.toLocaleDateString("id-ID", { month: "short" });
       data.push({
@@ -141,7 +149,7 @@ function buildChartData(transactions: TransactionOut[], range: TimeRange) {
       const year = now.getFullYear() - y;
       const yTx = transactions.filter((t) => {
         if (!t.transaction_date) return false;
-        return new Date(t.transaction_date).getFullYear() === year;
+        return parseInt(t.transaction_date.slice(0, 4), 10) === year;
       });
       data.push({
         label: String(year),
@@ -197,12 +205,12 @@ export default function DashboardPage() {
 
   const transactions = txData?.items ?? [];
   const now = new Date();
-  const thisMonth = now.getMonth();
-  const thisYear = now.getFullYear();
+  // Parse dari string YYYY-MM-DD langsung untuk menghindari timezone shift
+  const thisMonthStr = String(now.getMonth() + 1).padStart(2, "0");
+  const thisYearStr = String(now.getFullYear());
   const monthTransactions = transactions.filter((t) => {
     if (!t.transaction_date) return false;
-    const dt = new Date(t.transaction_date);
-    return dt.getMonth() === thisMonth && dt.getFullYear() === thisYear;
+    return t.transaction_date.slice(0, 4) === thisYearStr && t.transaction_date.slice(5, 7) === thisMonthStr;
   });
 
   const totalIncome = monthTransactions.filter((t) => t.type === "income").reduce((s, t) => s + (t.amount ?? 0), 0);
@@ -218,7 +226,7 @@ export default function DashboardPage() {
   const byCategory: Record<string, number> = {};
   monthTransactions.filter((t) => t.type !== "income").forEach((t) => {
     const key = t.category_id ?? "Lainnya";
-    const name = key === "Lainnya" ? "Lainnya" : categoryMap.get(key)?.name ?? key;
+    const name = key === "Lainnya" ? "Lainnya" : (categoryMap.get(key)?.name ?? "Lainnya");
     byCategory[name] = (byCategory[name] ?? 0) + (t.amount ?? 0);
   });
   const donutData = Object.entries(byCategory).map(([name, value]) => ({ name, value }));
@@ -233,10 +241,22 @@ export default function DashboardPage() {
       const res = await apiPost<OCRResponse>("/api/v1/ocr/process", form);
       setOcrResult(res);
       setOcrFile(null);
-      await refresh();
+      refresh();
       if (res.needs_review) {
-        const savedTx = (txData?.items ?? []).find((t) => t.id === res.transaction_id)
-          ?? { id: res.transaction_id, user_id: "", type: (res.extracted.transaction_type as "income" | "expense") ?? "expense", category_id: res.category_matched?.id ?? null, merchant_name: res.extracted.merchant ?? null, amount: res.extracted.total_amount ?? null, transaction_date: res.extracted.date ?? null, image_path: null, raw_ai_output: null, created_at: null } as TransactionOut;
+        // Bangun objek langsung dari response OCR -- jangan pakai txData yang masih stale
+        const savedTx: TransactionOut = {
+          id: res.transaction_id,
+          user_id: "",
+          type: (res.extracted.transaction_type as "income" | "expense") ?? "expense",
+          category_id: res.category_matched?.id ?? null,
+          merchant_name: res.extracted.merchant ?? null,
+          amount: res.extracted.total_amount ?? null,
+          // Normalisasi tanggal: kirim null jika format tidak jelas, user isi manual
+          transaction_date: null,
+          image_path: null,
+          raw_ai_output: null,
+          created_at: null,
+        };
         openEdit(savedTx);
         setOcrError(`Data tidak lengkap: ${res.missing_fields.join(", ")}. Silakan lengkapi manual.`);
       } else {
@@ -263,14 +283,18 @@ export default function DashboardPage() {
 
   async function handleEditSave() {
     if (!editTx) return;
+    if (!editForm.merchant_name.trim()) { alert("Merchant tidak boleh kosong."); return; }
+    if (!editForm.amount || parseFloat(editForm.amount) <= 0) { alert("Nominal harus lebih dari 0."); return; }
+    if (!editForm.transaction_date) { alert("Tanggal tidak boleh kosong."); return; }
     setEditLoading(true);
     try {
-      const body: Record<string, unknown> = {};
-      body.type = editForm.type;
-      if (editForm.merchant_name) body.merchant_name = editForm.merchant_name;
-      if (editForm.amount) body.amount = parseFloat(editForm.amount);
-      if (editForm.transaction_date) body.transaction_date = editForm.transaction_date;
-      if (editForm.category_id) body.category_id = editForm.category_id;
+      const body: Record<string, unknown> = {
+        type: editForm.type,
+        merchant_name: editForm.merchant_name.trim(),
+        amount: parseFloat(editForm.amount),
+        transaction_date: editForm.transaction_date,
+        category_id: editForm.category_id || null,
+      };
       await apiPut(`/api/v1/transactions/${editTx.id}`, body);
       setEditTx(null);
       refresh();
