@@ -8,7 +8,7 @@ import {
   Profile,
   OCRResponse,
 } from "@/types/api";
-import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, apiGetBlob, getAccessToken } from "@/lib/api";
 import { getProfile } from "@/lib/profile";
 import {
   PieChart,
@@ -21,7 +21,7 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { Upload, Loader2, X, Check, Pencil, Trash2 } from "lucide-react";
+import { Upload, Loader2, X, Check, Pencil, Trash2, Receipt } from "lucide-react";
 
 function formatIdr(n: number) {
   return new Intl.NumberFormat("id-ID", {
@@ -107,6 +107,9 @@ export default function DashboardPage() {
   const [deleteTx, setDeleteTx] = useState<TransactionOut | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   const transactions = txData?.items ?? [];
   const totalCount = txData?.total ?? 0;
   const now = new Date();
@@ -152,12 +155,34 @@ export default function DashboardPage() {
       form.append("file", ocrFile);
       const res = await apiPost<OCRResponse>("/api/v1/ocr/process", form);
       setOcrResult(res);
-      setModalOpen(true);
       setOcrFile(null);
-      refresh();
+      await refresh();
+
+      if (res.needs_review) {
+        const savedTx = (txData?.items ?? []).find((t) => t.id === res.transaction_id)
+          ?? {
+            id: res.transaction_id,
+            user_id: "",
+            category_id: res.category_matched?.id ?? null,
+            merchant_name: res.extracted.merchant ?? null,
+            amount: res.extracted.total_amount ?? null,
+            transaction_date: res.extracted.date ?? null,
+            image_path: null,
+            raw_ai_output: null,
+            created_at: null,
+          } as TransactionOut;
+        openEdit(savedTx);
+        setOcrError(`Data tidak lengkap: ${res.missing_fields.join(", ")}. Silakan lengkapi manual.`);
+      } else {
+        setModalOpen(true);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal memproses struk";
-      setOcrError(msg.includes("401") || msg === "Unauthorized" ? "Sesi habis, silakan login lagi." : "AI sibuk, coba lagi.");
+      if (msg.includes("401") || msg === "Unauthorized") {
+        setOcrError("Sesi habis, silakan login lagi.");
+      } else {
+        setOcrError("AI sibuk atau gagal membaca struk, coba lagi.");
+      }
     } finally {
       setOcrLoading(false);
     }
@@ -203,6 +228,18 @@ export default function DashboardPage() {
       alert("Gagal menghapus transaksi.");
     } finally {
       setDeleteLoading(false);
+    }
+  }
+
+  async function openReceipt(imagePath: string) {
+    setPreviewLoading(true);
+    try {
+      const url = await apiGetBlob(imagePath);
+      setPreviewUrl(url);
+    } catch {
+      alert("Gagal memuat gambar struk.");
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -324,6 +361,16 @@ export default function DashboardPage() {
                 </div>
                 <p className="font-semibold text-slate-900 shrink-0">{t.amount != null ? formatIdr(t.amount) : "—"}</p>
                 <div className="flex gap-1 shrink-0">
+                  {t.image_path && (
+                    <button
+                      type="button"
+                      onClick={() => openReceipt(t.image_path!)}
+                      className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                      aria-label="Lihat Struk"
+                    >
+                      <Receipt className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => openEdit(t)}
@@ -550,6 +597,35 @@ export default function DashboardPage() {
               >
                 {deleteLoading ? "Menghapus..." : "Hapus"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt preview modal */}
+      {(previewUrl || previewLoading) && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-slate-900">Struk Asli</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  if (previewUrl) URL.revokeObjectURL(previewUrl);
+                  setPreviewUrl(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-50">
+              {previewLoading ? (
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+              ) : previewUrl ? (
+                <img src={previewUrl} alt="Struk" className="max-w-full max-h-[70vh] rounded-lg shadow" />
+              ) : null}
             </div>
           </div>
         </div>

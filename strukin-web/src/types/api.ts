@@ -39,6 +39,8 @@ export interface OCRResponse {
   transaction_id: string;
   extracted: AIExtractedData;
   category_matched: CategoryOut | null;
+  missing_fields: string[];
+  needs_review: boolean;
   message?: string;
 }
 

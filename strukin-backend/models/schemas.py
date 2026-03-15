@@ -79,5 +79,7 @@ class OCRResponse(BaseModel):
     """Full response from the OCR endpoint."""
     transaction_id: UUID
     extracted: AIExtractedData
-    category_matched: CategoryOut | None = None  # The category that was matched & saved
+    category_matched: CategoryOut | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+    needs_review: bool = False
     message: str = "Receipt processed successfully"

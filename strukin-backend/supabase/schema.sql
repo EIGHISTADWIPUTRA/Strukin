@@ -107,13 +107,18 @@ CREATE POLICY "Users can delete own transactions"
     ON public.transactions FOR DELETE
     USING (user_id = auth.uid());
 
--- ─── Optional: seed global categories (jalankan sekali) ─────────────────────
--- INSERT INTO public.categories (id, user_id, name, icon, color) VALUES
---   (gen_random_uuid(), NULL, 'Makanan & Minuman', '🍽️', '#22C55E'),
---   (gen_random_uuid(), NULL, 'Transportasi', '🚗', '#3B82F6'),
---   (gen_random_uuid(), NULL, 'Belanja', '🛒', '#F59E0B'),
---   (gen_random_uuid(), NULL, 'Kesehatan', '💊', '#EF4444'),
---   (gen_random_uuid(), NULL, 'Lainnya', '📌', '#6B7280');
+-- ─── Seed global categories (jalankan sekali) ───────────────────────────────
+-- Jalankan di Supabase Dashboard → SQL Editor (sekali saja):
+INSERT INTO public.categories (id, user_id, name, icon, color) VALUES
+  (gen_random_uuid(), NULL, 'Makanan & Minuman', '🍽️', '#22C55E'),
+  (gen_random_uuid(), NULL, 'Transportasi', '🚗', '#3B82F6'),
+  (gen_random_uuid(), NULL, 'Belanja', '🛒', '#F59E0B'),
+  (gen_random_uuid(), NULL, 'Kesehatan', '💊', '#EF4444'),
+  (gen_random_uuid(), NULL, 'Hiburan', '🎬', '#8B5CF6'),
+  (gen_random_uuid(), NULL, 'Tagihan & Utilitas', '💡', '#EC4899'),
+  (gen_random_uuid(), NULL, 'Pendidikan', '📚', '#14B8A6'),
+  (gen_random_uuid(), NULL, 'Lainnya', '📌', '#6B7280')
+ON CONFLICT (user_id, name) DO NOTHING;
 
 -- ─── Optional: backfill profiles untuk user yang sudah ada (sekali saja) ───
 -- Jalankan jika sebelumnya ada user yang daftar sebelum trigger dibuat:

@@ -6,14 +6,20 @@ matches the suggested category, saves a transaction, and returns the result.
 """
 
 import logging
+import uuid
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 
 from api.deps import get_current_user
 from models.schemas import AIExtractedData, CategoryOut, OCRResponse
 from services import ai_service, db_service
+
+UPLOAD_DIR = Path("uploads/receipts")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ocr", tags=["OCR"])
@@ -54,7 +60,15 @@ async def process_receipt(
             detail="File exceeds the 10 MB limit.",
         )
 
-    # ── 2. Fetch categories for AI context ──────────────────────────────────
+    # ── 2. Save receipt image to disk ───────────────────────────────────────
+    ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif"}
+    ext = ext_map.get(content_type, ".jpg")
+    filename = f"{user_id}_{uuid.uuid4().hex[:12]}{ext}"
+    receipt_path = UPLOAD_DIR / filename
+    receipt_path.write_bytes(file_bytes)
+    image_url = f"/api/v1/ocr/receipts/{filename}"
+
+    # ── 3. Fetch categories for AI context ─────────────────────────────────
     try:
         categories = await db_service.get_categories(user_id)
         category_names = [c["name"] for c in categories]
@@ -63,7 +77,7 @@ async def process_receipt(
         categories = []
         category_names = []
 
-    # ── 3. Run AI OCR pipeline ──────────────────────────────────────────────
+    # ── 4. Run AI OCR pipeline ──────────────────────────────────────────────
     try:
         ai_data = await ai_service.process_receipt(file_bytes, category_names)
     except httpx.TimeoutException:
@@ -81,46 +95,59 @@ async def process_receipt(
         # Ensure file_bytes is freed even if an error occurs
         del file_bytes
 
-    # ── 4. Match category ───────────────────────────────────────────────────
+    # ── 5. Parse extracted fields ────────────────────────────────────────────
+    merchant = (ai_data.get("merchant") or "").strip() or None
+    amount = ai_data.get("total_amount")
+
+    tx_date_raw = ai_data.get("date")
+    tx_date = None
+    if tx_date_raw:
+        if hasattr(tx_date_raw, "isoformat"):
+            tx_date = tx_date_raw
+        elif isinstance(tx_date_raw, str):
+            raw = tx_date_raw.strip()
+            for fmt in (
+                "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
+                "%m/%d/%Y", "%Y/%m/%d", "%d %B %Y",
+                "%d %b %Y", "%B %d, %Y", "%b %d, %Y",
+            ):
+                try:
+                    tx_date = datetime.strptime(raw, fmt).date()
+                    break
+                except ValueError:
+                    continue
+
+    missing: list[str] = []
+    if not merchant:
+        missing.append("merchant_name")
+    if amount is None or amount <= 0:
+        missing.append("amount")
+    if tx_date is None:
+        missing.append("transaction_date")
+
+    if missing:
+        logger.info("Incomplete OCR for user %s — missing: %s", user_id, missing)
+
+    # ── 6. Match category (fallback to 'Lainnya') ─────────────────────────
     matched_category: dict | None = None
     if ai_data.get("suggested_category"):
         matched_category = await db_service.find_category_by_name(
             user_id, ai_data["suggested_category"]
         )
+    if not matched_category:
+        matched_category = await db_service.find_category_by_name(user_id, "Lainnya")
 
-    # ── 5. Save transaction ─────────────────────────────────────────────────
+    # ── 7. Save transaction (even if incomplete) ────────────────────────────
     try:
-        tx_date_raw = ai_data.get("date")
-        tx_date = None
-        if tx_date_raw:
-            if hasattr(tx_date_raw, "isoformat"):
-                tx_date = tx_date_raw
-            elif isinstance(tx_date_raw, str):
-                raw = tx_date_raw.strip()
-                for fmt in (
-                    "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
-                    "%m/%d/%Y", "%Y/%m/%d", "%d %B %Y",
-                    "%d %b %Y", "%B %d, %Y", "%b %d, %Y",
-                ):
-                    try:
-                        tx_date = datetime.strptime(raw, fmt).date()
-                        break
-                    except ValueError:
-                        continue
-                if tx_date is None:
-                    logger.warning("Could not parse date '%s', falling back to today", raw)
-                    tx_date = datetime.now().date()
-
-        transaction_payload = {
-            "merchant_name": ai_data.get("merchant"),
-            "amount": ai_data.get("total_amount"),
-            "transaction_date": tx_date.isoformat() if tx_date else None,
-            "category_id": matched_category["id"] if matched_category else None,
-            "image_path": None,
-            "raw_ai_output": ai_data,
-        }
-        # Remove None values to avoid overwriting DB defaults
-        transaction_payload = {k: v for k, v in transaction_payload.items() if v is not None}
+        transaction_payload: dict = {"raw_ai_output": ai_data, "image_path": image_url}
+        if merchant:
+            transaction_payload["merchant_name"] = merchant
+        if amount is not None and amount > 0:
+            transaction_payload["amount"] = amount
+        if tx_date:
+            transaction_payload["transaction_date"] = tx_date.isoformat()
+        if matched_category:
+            transaction_payload["category_id"] = matched_category["id"]
 
         saved = await db_service.save_transaction(user_id, transaction_payload)
     except Exception as exc:
@@ -130,9 +157,33 @@ async def process_receipt(
             detail="Receipt was processed but could not be saved. Please try again.",
         )
 
-    # ── 6. Return response ──────────────────────────────────────────────────
+    needs_review = len(missing) > 0
+    msg = (
+        "Data struk tidak lengkap, silakan lengkapi manual."
+        if needs_review
+        else "Receipt processed successfully"
+    )
+
+    # ── 8. Return response ──────────────────────────────────────────────────
     return OCRResponse(
         transaction_id=saved["id"],
         extracted=AIExtractedData(**ai_data),
         category_matched=CategoryOut.model_validate(matched_category) if matched_category else None,
+        missing_fields=missing,
+        needs_review=needs_review,
+        message=msg,
     )
+
+
+@router.get("/receipts/{filename}", tags=["OCR"])
+async def get_receipt_image(
+    filename: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Serve a previously uploaded receipt image (auth required)."""
+    if not filename.startswith(user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    filepath = UPLOAD_DIR / filename
+    if not filepath.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt image not found.")
+    return FileResponse(filepath)

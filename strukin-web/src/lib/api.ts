@@ -77,4 +77,11 @@ export async function apiDelete(path: string): Promise<void> {
   }
 }
 
+export async function apiGetBlob(path: string): Promise<string> {
+  const res = await authFetch(path);
+  if (!res.ok) throw new Error("Failed to load image");
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 export { API_BASE };
