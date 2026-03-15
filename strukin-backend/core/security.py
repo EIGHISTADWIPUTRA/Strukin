@@ -3,13 +3,14 @@ JWT verification and middleware for Supabase-issued access tokens.
 
 Flow:
   1. Client authenticates with Supabase (email/password, OAuth, etc.)
-  2. Supabase returns a signed JWT (HS256) using the project JWT secret.
+  2. Supabase returns a signed JWT (ES256) using the project's EC private key.
   3. Every request to this API must include: Authorization: Bearer <jwt>
-  4. JWTMiddleware verifies the token locally (no network call) and injects
-     the user_id into request.state for downstream route handlers.
+  4. JWTMiddleware verifies the token using the public key fetched dynamically
+     from Supabase's JWKS endpoint — no static secret required.
 """
 
 import jwt
+from jwt import PyJWKClient
 from fastapi import HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -17,8 +18,16 @@ from starlette.responses import JSONResponse
 
 from core.config import settings
 
-# Supabase JWTs are signed with HS256
-_ALGORITHM = "HS256"
+# Supabase now signs JWTs with ES256; JWKS endpoint provides the public key
+_ALGORITHM = "ES256"
+_AUDIENCE = "authenticated"
+
+# PyJWKClient fetches and caches keys from the JWKS endpoint automatically
+_jwks_client = PyJWKClient(
+    f"{settings.SUPABASE_URL}/auth/v1/jwks",
+    cache_keys=True,
+    lifespan=600,  # re-fetch keys every 10 minutes
+)
 
 # Routes that skip authentication
 _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
@@ -26,17 +35,18 @@ _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 def verify_supabase_jwt(token: str) -> dict:
     """
-    Decode and verify a Supabase JWT.
+    Decode and verify a Supabase JWT using the JWKS public key.
 
     Returns the decoded payload (which contains 'sub' = user UUID).
     Raises HTTPException 401 if the token is invalid or expired.
     """
     try:
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
-            settings.SUPABASE_JWT_SECRET,
+            signing_key.key,
             algorithms=[_ALGORITHM],
-            options={"verify_aud": False},  # Supabase tokens may have a custom audience
+            audience=_AUDIENCE,
         )
         return payload
     except jwt.ExpiredSignatureError:

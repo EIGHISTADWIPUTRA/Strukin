@@ -8,8 +8,9 @@ uvicorn[standard]==0.32.1
 # Supabase client (v2)
 supabase==2.10.0
 
-# JWT verification
+# JWT verification (ES256 via JWKS)
 pyjwt[crypto]==2.10.1
+requests==2.32.3
 
 # Image processing
 Pillow==11.1.0

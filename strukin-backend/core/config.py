@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str
     SUPABASE_SERVICE_ROLE_KEY: str
-    SUPABASE_JWT_SECRET: str
+    # SUPABASE_JWT_SECRET no longer needed — JWT is verified via JWKS (ES256)
 
     # Alibaba Cloud DashScope — Qwen3-VL (vision + language)
     DASHSCOPE_API_KEY: str
