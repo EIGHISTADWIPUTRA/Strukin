@@ -10,8 +10,7 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str
     SUPABASE_SERVICE_ROLE_KEY: str
-    SUPABASE_ANON_KEY: str
-    SUPABASE_JWT_SECRET: str  # Project Settings → API → JWT Secret (HS256)
+    SUPABASE_JWT_SECRET: str  # Project Settings → JWT Keys → Legacy JWT Secret (HS256)
 
     # Alibaba Cloud DashScope — Qwen3-VL (vision + language)
     DASHSCOPE_API_KEY: str
