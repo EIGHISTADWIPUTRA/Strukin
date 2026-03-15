@@ -18,6 +18,13 @@ from starlette.responses import JSONResponse
 
 from core.config import settings
 
+# ── Debug: pastikan SUPABASE_ANON_KEY terbaca dari .env ──────────────────────
+_anon_preview = settings.SUPABASE_ANON_KEY[:12] + "..." if settings.SUPABASE_ANON_KEY else "TIDAK TERBACA"
+print("=======================================")
+print(f"CEK KUNCI ANON: {_anon_preview}")
+print(f"CEK SUPABASE URL: {settings.SUPABASE_URL}")
+print("=======================================")
+
 # Supabase now signs JWTs with ES256; JWKS endpoint provides the public key
 _ALGORITHMS = ["ES256", "HS256"]  # ES256 for new projects, HS256 as fallback
 _AUDIENCE = "authenticated"
