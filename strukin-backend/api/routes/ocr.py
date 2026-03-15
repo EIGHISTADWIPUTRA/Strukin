@@ -90,17 +90,26 @@ async def process_receipt(
 
     # ── 5. Save transaction ─────────────────────────────────────────────────
     try:
-        # Parse date: AI may return "YYYY-MM-DD" or other string; normalize for DB
         tx_date_raw = ai_data.get("date")
         tx_date = None
         if tx_date_raw:
-            if isinstance(tx_date_raw, str):
-                try:
-                    tx_date = datetime.strptime(tx_date_raw.strip()[:10], "%Y-%m-%d").date()
-                except ValueError:
-                    pass
-            elif hasattr(tx_date_raw, "isoformat"):
+            if hasattr(tx_date_raw, "isoformat"):
                 tx_date = tx_date_raw
+            elif isinstance(tx_date_raw, str):
+                raw = tx_date_raw.strip()
+                for fmt in (
+                    "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
+                    "%m/%d/%Y", "%Y/%m/%d", "%d %B %Y",
+                    "%d %b %Y", "%B %d, %Y", "%b %d, %Y",
+                ):
+                    try:
+                        tx_date = datetime.strptime(raw, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if tx_date is None:
+                    logger.warning("Could not parse date '%s', falling back to today", raw)
+                    tx_date = datetime.now().date()
 
         transaction_payload = {
             "merchant_name": ai_data.get("merchant"),
